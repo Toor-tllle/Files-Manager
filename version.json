@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "0.1.5",
+  "versionCode": 7,
+  "versionName": "0.1.6",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.5：起動直後クラッシュの原因（ライブラリのRクラス欠落）を修正。通常の1画面構成に戻しました。"
+  "notes": "v0.1.6：診断版。素のランチャーで端末に残るクラッシュ記録と実際のインストール中バージョンを表示します。"
 }
