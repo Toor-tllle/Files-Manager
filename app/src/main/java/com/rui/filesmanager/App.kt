@@ -154,6 +154,10 @@ fun FilesManagerApp() {
     var crashText by remember { mutableStateOf(CrashLog.read(context)) }
     var startupChecked by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { CrashLog.setStage(context, "root-composed") }
+    // 更新済みの更新APKが Downloads に残っていたら掃除する（未インストールの新更新は残す）
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { runCatching { Updater.cleanupOldUpdateApks(context, store) } }
+    }
     LaunchedEffect(Unit) {
         if (!startupChecked && Updater.autoCheck(store)) {
             startupChecked = true
@@ -2166,9 +2170,7 @@ private fun SettingsScreen(
     }
     var dlProgress by remember { mutableStateOf<Updater.Progress?>(null) }
     LaunchedEffect(Unit) {
-        if (Updater.savedDownloadId(store) > 0 && Updater.savedDownloadCode(store) <= curCode) {
-            Updater.clearSavedDownload(store)
-        }
+        withContext(Dispatchers.IO) { runCatching { Updater.cleanupOldUpdateApks(context, store) } }
     }
 
     // ダウンロード中は進捗をポーリング（ステータスバー通知と併せてアプリ内でも表示）

@@ -1,6 +1,6 @@
 {
-  "versionCode": 20,
-  "versionName": "0.2.9",
+  "versionCode": 21,
+  "versionName": "0.2.10",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.9：設定の「インストールする」ボタンは、更新をダウンロードしたときだけ表示するようにしました（更新済みの古いダウンロード記録が残っていて常に出てしまう問題の修正）。"
+  "notes": "v0.2.10：更新が済んだ更新APK（Downloadsの FilesManager-update.apk）は、次回起動時に自動で削除するようにしました。まだインストールしていない新しい更新のAPKは消しません。あわせて「インストールする」ボタンは更新時のみの表示です（v0.2.9）。"
 }

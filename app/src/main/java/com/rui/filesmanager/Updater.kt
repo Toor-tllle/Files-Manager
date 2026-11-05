@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.content.ContentUris
+import android.provider.MediaStore
 import android.provider.Settings
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -108,6 +110,41 @@ object Updater {
 
     /** 保存済みダウンロードの対象versionCode（旧版で保存された記録には無いので0）。 */
     fun savedDownloadCode(store: NasStore): Int = store.getString(PREF_DL_CODE, "").toIntOrNull() ?: 0
+
+    /**
+     * 更新済みの更新APKを Downloads から消す。
+     * まだ未インストールの新しい更新（対象versionCode > 現在の版数）は消さない。
+     */
+    fun cleanupOldUpdateApks(context: Context, store: NasStore) {
+        val savedId = savedDownloadId(store)
+        val curCode = currentVersion(context).first
+        if (savedId > 0 && savedDownloadCode(store) > curCode) return // 未インストールの更新は保持
+        if (savedId > 0) {
+            runCatching {
+                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.remove(savedId) // ダウンロード記録ごとファイルも消える
+            }
+        }
+        // ファイル名パターンで残っている分も掃除（過去に連番が付いたコピーなど）
+        runCatching {
+            val resolver = context.contentResolver
+            val uri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            resolver.query(
+                uri,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.DISPLAY_NAME} LIKE ?",
+                arrayOf("FilesManager-update%"),
+                null,
+            )?.use { c ->
+                val idCol = c.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+                while (c.moveToNext()) {
+                    val rowUri = ContentUris.withAppendedId(uri, c.getLong(idCol))
+                    runCatching { resolver.delete(rowUri, null, null) }
+                }
+            }
+        }
+        if (savedId > 0) clearSavedDownload(store)
+    }
 
     fun clearSavedDownload(store: NasStore) {
         store.putString(PREF_DL_ID, "")
