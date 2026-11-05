@@ -1,6 +1,6 @@
 {
-  "versionCode": 10,
-  "versionName": "0.1.9",
+  "versionCode": 11,
+  "versionName": "0.2.0",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.9：Compose の文字表示に必須の emoji2 部品が欠けていた問題を修正。通常構成で起動します。"
+  "notes": "v0.2.0：NASの自動検索（mDNS＋ネットワーク走査）を追加。検索→ログイン→共有フォルダ自動検出の流れに変更し、エラー理由も日本語で表示します。"
 }

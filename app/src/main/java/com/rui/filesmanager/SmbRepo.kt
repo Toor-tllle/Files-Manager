@@ -32,24 +32,85 @@ object SmbRepo {
     private var shares = ConcurrentHashMap<String, DiskShare>()
     @Volatile private var connectedKey: String = ""
 
+    private var sessionKey: String = ""
+
+    /** 接続＋認証（セッション確立）だけを行う。共有には触らない＝ログイン成否の切り分け用。 */
     @Synchronized
-    fun ensureConnected(conn: NasConnection): DiskShare {
-        val key = "${conn.host}|${conn.share}|${conn.username}"
-        val existing = shares[conn.id]
-        if (existing != null && connectedKey.startsWith("${conn.host}|") && connection?.isConnected == true) {
-            return existing
-        }
+    fun ensureSession(conn: NasConnection): Session {
+        val key = "${conn.host}|${conn.username}"
+        val cur = session
+        if (cur != null && sessionKey == key && connection?.isConnected == true) return cur
         disconnectLocked()
         val c = SMBClient()
         val cn = c.connect(conn.host)
         val s = cn.authenticate(
             AuthenticationContext(conn.username, conn.password.toCharArray(), conn.domain.ifBlank { null })
         )
-        val share = s.connectShare(conn.share) as DiskShare
         client = c; connection = cn; session = s
-        shares[conn.id] = share
-        connectedKey = key
+        sessionKey = key
         SmbStreamServer.start()
+        return s
+    }
+
+    /** ログイン（認証）だけをテストする。成功すれば例外なし。 */
+    fun loginTest(conn: NasConnection) {
+        ensureSession(conn)
+    }
+
+    /** よくある共有名を総当たりで探し、実際に開けたものだけ返す。 */
+    @Synchronized
+    fun probeShares(conn: NasConnection): List<String> {
+        val s = ensureSession(conn)
+        val found = mutableListOf<String>()
+        for (name in COMMON_SHARES) {
+            try {
+                val sh = s.connectShare(name) as DiskShare
+                try {
+                    sh.list("")
+                    found.add(name)
+                } finally {
+                    runCatching { sh.close() }
+                }
+            } catch (_: Exception) {
+                // その名前の共有は無い／権限なし → 次を試す
+            }
+        }
+        return found
+    }
+
+    /** 指定した共有名が開けるかテストする。 */
+    @Synchronized
+    fun testShare(conn: NasConnection, shareName: String): Boolean {
+        val s = ensureSession(conn)
+        return try {
+            val sh = s.connectShare(shareName) as DiskShare
+            try {
+                sh.list("")
+                true
+            } finally {
+                runCatching { sh.close() }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    val COMMON_SHARES = listOf(
+        "share", "public", "Public", "home", "homes", "data", "Data",
+        "multimedia", "Multimedia", "Download", "download", "photo", "Photo",
+        "music", "Music", "video", "Video", "disk", "volume1", "nas", "NAS",
+    )
+
+    @Synchronized
+    fun ensureConnected(conn: NasConnection): DiskShare {
+        val existing = shares[conn.id]
+        if (existing != null && sessionKey == "${conn.host}|${conn.username}" && connection?.isConnected == true) {
+            return existing
+        }
+        val s = ensureSession(conn)
+        val share = s.connectShare(conn.share) as DiskShare
+        shares[conn.id] = share
+        connectedKey = "${conn.host}|${conn.share}|${conn.username}"
         return share
     }
 
@@ -64,6 +125,7 @@ object SmbRepo {
         runCatching { client?.close() }
         session = null; connection = null; client = null
         connectedKey = ""
+        sessionKey = ""
     }
 
     fun list(conn: NasConnection, path: String): List<NasEntry> {
@@ -150,6 +212,36 @@ object SmbRepo {
     fun delete(conn: NasConnection, entry: NasEntry) {
         val share = ensureConnected(conn)
         if (entry.isDir) share.rmdir(entry.path, false) else share.rm(entry.path)
+    }
+
+    /** SMB のエラーを日本語の案内に変換する（診断用にステータスコードも併記）。 */
+    fun describeError(e: Throwable): String {
+        val raw = (e.message ?: e.toString())
+        val upper = raw.uppercase()
+        val friendly = when {
+            e is java.net.UnknownHostException ->
+                "ホスト名を解決できませんでした。NAS名ではなくIPアドレスで試してください（検索で見つけた機器を選ぶとIPが入ります）。"
+            upper.contains("C000006D") || upper.contains("LOGON_FAILURE") || upper.contains("LOGON FAILED") ->
+                "ログインできませんでした。ユーザー名かパスワードが違うか、そのアカウントがNAS側で無効化されています（Synology の「admin」は初期状態で無効なことがあります。その場合は普段使っている管理者アカウントで試してください）。"
+            upper.contains("C0000064") || upper.contains("NO_SUCH_USER") ->
+                "そのユーザーはNASに存在しません。ユーザー名を確認してください。"
+            upper.contains("C000006A") || upper.contains("WRONG_PASSWORD") ->
+                "パスワードが違います。"
+            upper.contains("C0000072") || upper.contains("ACCOUNT_DISABLED") ->
+                "そのアカウントはNAS側で無効化されています。NASの管理画面で有効化するか、別のアカウントを使ってください。"
+            upper.contains("C0000234") || upper.contains("ACCOUNT_LOCKED") ->
+                "アカウントがロックされています。しばらく待つか、NASの管理画面でロックを解除してください。"
+            upper.contains("C00000CC") || upper.contains("BAD_NETWORK_NAME") ->
+                "共有フォルダが見つかりません。共有名を確認してください。"
+            upper.contains("C0000022") || upper.contains("ACCESS_DENIED") ->
+                "アクセスが拒否されました。そのアカウントに共有フォルダへの権限がない可能性があります。"
+            e is java.net.SocketTimeoutException || upper.contains("TIMED OUT") || upper.contains("TIMEOUT") ->
+                "NASから応答がありません。同じWi-Fiにつながっているか、NASの電源が入っているか確認してください。"
+            e is java.net.ConnectException || upper.contains("FAILED TO CONNECT") || upper.contains("CONNECTION REFUSED") || upper.contains("ECONNREFUSED") ->
+                "NASに接続できませんでした。IPアドレスが合っているか、NASのSMBサービスが有効か確認してください。古いNASでSMB1のみ対応の機種には接続できません。"
+            else -> "接続できませんでした。"
+        }
+        return friendly + "\n（詳細: " + raw.take(220) + "）"
     }
 
     /** 動画・音声を ExoPlayer で再生するためのローカルURLを発行する */

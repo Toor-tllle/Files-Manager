@@ -890,8 +890,15 @@ private fun NasEditScreen(
     var username by remember { mutableStateOf(initial?.username ?: "") }
     var password by remember { mutableStateOf(initial?.password ?: "") }
     var domain by remember { mutableStateOf(initial?.domain ?: "") }
-    var testing by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<String?>(null) }
+
+    var discovering by remember { mutableStateOf(false) }
+    var found by remember { mutableStateOf<List<DiscoveredNas>>(emptyList()) }
+    var searchNote by remember { mutableStateOf<String?>(null) }
+
+    var busy by remember { mutableStateOf("") }
+    var statusMsg by remember { mutableStateOf<String?>(null) }
+    var statusOk by remember { mutableStateOf(false) }
+    var foundShares by remember { mutableStateOf<List<String>>(emptyList()) }
 
     fun build(): NasConnection = NasConnection(
         id = initial?.id ?: UUID.randomUUID().toString(),
@@ -903,15 +910,85 @@ private fun NasEditScreen(
         domain = domain.trim(),
     )
 
+    fun doDiscover() {
+        if (discovering) return
+        discovering = true; searchNote = null
+        scope.launch {
+            val r = runCatching {
+                NasDiscovery.discover(context) { list -> found = list }
+            }
+            discovering = false
+            searchNote = when {
+                r.isFailure -> "検索できませんでした: ${r.exceptionOrNull()?.message}"
+                found.isEmpty() -> "見つかりませんでした。NASの電源と、同じWi-Fiにつながっているかを確認して、もう一度検索してね。下の欄にIPアドレスを直接入力してもOKです。"
+                else -> "${found.size}件見つかりました。タップすると入力欄に入ります。"
+            }
+        }
+    }
+    val nearbyLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { doDiscover() }
+    fun startDiscovery() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED
+        ) {
+            nearbyLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
+        } else {
+            doDiscover()
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         SimpleBar(if (initial == null) "NASを追加" else "NASを編集", onBack)
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             item {
+                Text(
+                    "まず「検索」でNASを見つけてタップ。あとはユーザー名とパスワードでログインすれば、共有フォルダを自動で探します。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = { startDiscovery() }, modifier = Modifier.fillMaxWidth(), enabled = !discovering) {
+                    Icon(Icons.Filled.Search, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (discovering) "検索中…（数秒かかります）" else "ネットワーク上のNASを検索")
+                }
+                if (discovering) {
+                    Spacer(Modifier.height(10.dp))
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                if (searchNote != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(searchNote!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            items(found, key = { it.host }) { d ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        host = d.host
+                        if (label.isBlank() && d.name.isNotBlank()) label = d.name
+                        statusMsg = "「${d.name.ifBlank { d.host }}」を入力欄に入れました。下でログインしてね。"
+                        statusOk = true
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(AppIcons.Cloud, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(d.name.ifBlank { "（名前不明の機器）" }, fontWeight = FontWeight.Bold)
+                            Text(d.host, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            item {
+                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(label, { label = it }, label = { Text("表示名（例：自宅NAS）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(host, { host = it }, label = { Text("ホスト名 / IPアドレス（例：192.168.1.10）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(share, { share = it }, label = { Text("共有フォルダ名（例：share、public）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(username, { username = it }, label = { Text("ユーザー名") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
@@ -924,6 +1001,81 @@ private fun NasEditScreen(
                 )
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(domain, { domain = it }, label = { Text("ドメイン / ワークグループ（任意）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(14.dp))
+                Button(
+                    onClick = {
+                        val c = build()
+                        if (c.host.isBlank() || c.username.isBlank()) {
+                            Toast.makeText(context, "ホストとユーザー名を入力してね", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        busy = "login"; statusMsg = null; foundShares = emptyList()
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    SmbRepo.loginTest(c)
+                                    SmbRepo.probeShares(c)
+                                }
+                            }
+                            busy = ""
+                            r.onSuccess { shares ->
+                                foundShares = shares
+                                statusOk = true
+                                statusMsg = if (shares.isEmpty()) {
+                                    "ログインできました。ただ、よくある名前の共有フォルダは見つかりませんでした。下の欄に共有フォルダ名を直接入力して「保存」してね。"
+                                } else {
+                                    "ログインできました。下の共有フォルダから使うものを選んでね。"
+                                }
+                                if (shares.size == 1 && share.isBlank()) share = shares[0]
+                            }.onFailure { e ->
+                                statusOk = false
+                                statusMsg = SmbRepo.describeError(e)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = busy.isEmpty(),
+                ) { Text(if (busy == "login") "ログイン中…" else "ログインして共有フォルダを探す") }
+                if (statusMsg != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        statusMsg!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (statusOk) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            if (foundShares.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(12.dp))
+                    Text("見つかった共有フォルダ", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                }
+                items(foundShares, key = { it }) { name ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { share = name },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (share == name) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
+                            Text(name, fontWeight = FontWeight.Medium)
+                            if (share == name) {
+                                Spacer(Modifier.width(8.dp))
+                                Text("選択中", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+            item {
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(share, { share = it }, label = { Text("共有フォルダ名（例：share、public）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 Text(
                     "アカウントはこの端末の中だけに、暗号化して保存します。次回からは入力なしで自動ログインします。",
@@ -931,42 +1083,17 @@ private fun NasEditScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = {
-                            val c = build()
-                            if (c.host.isBlank() || c.share.isBlank()) {
-                                Toast.makeText(context, "ホストと共有フォルダ名は必須です", Toast.LENGTH_SHORT).show()
-                                return@Button
-                            }
-                            onSave(c)
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("保存") }
-                    TextButton(
-                        onClick = {
-                            val c = build()
-                            testing = true; testResult = null
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) {
-                                    try {
-                                        SmbRepo.disconnect()
-                                        SmbRepo.list(c, "")
-                                        "接続OK：共有フォルダを開けました"
-                                    } catch (e: Exception) {
-                                        "接続失敗：${e.message}"
-                                    }
-                                }
-                                testing = false; testResult = r
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (testing) "確認中…" else "接続テスト") }
-                }
-                if (testResult != null) {
-                    Spacer(Modifier.height(10.dp))
-                    Text(testResult!!, color = MaterialTheme.colorScheme.primary)
-                }
+                Button(
+                    onClick = {
+                        val c = build()
+                        if (c.host.isBlank() || c.share.isBlank()) {
+                            Toast.makeText(context, "ホストと共有フォルダ名は必須です", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        onSave(c.copy(label = c.label.ifBlank { c.host }))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("保存") }
                 Spacer(Modifier.height(24.dp))
             }
         }
@@ -996,7 +1123,7 @@ private fun NasBrowseScreen(
             try {
                 entries = withContext(Dispatchers.IO) { SmbRepo.list(conn, path) }
             } catch (e: Exception) {
-                error = "接続できませんでした。保存アカウントで自動ログインを試しましたが失敗しました。\n${e.message}\n\nパスワードが変わっている場合は「接続先」から編集してね。"
+                error = "保存アカウントで自動ログインを試しましたが、接続できませんでした。\n" + SmbRepo.describeError(e) + "\n\nパスワードが変わっている場合は「接続先」から編集してね。"
             }
         }
     }
