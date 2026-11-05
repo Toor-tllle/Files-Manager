@@ -1,6 +1,9 @@
 package com.rui.filesmanager
 
 import android.view.SurfaceView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -24,6 +28,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -39,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -69,6 +75,7 @@ fun PlayerScreen(
     hasNext: Boolean = false,
     queueLabel: String = "",
     landscape: Boolean = false,
+    onBack: () -> Unit = {},
     onPrev: () -> Unit = {},
     onNext: () -> Unit = {},
 ) {
@@ -91,6 +98,9 @@ fun PlayerScreen(
     var swipeSeeking by remember { mutableStateOf(false) }
     var swipeDeltaMs by remember { mutableStateOf(0L) }
     var swipeStartPos by remember { mutableStateOf(0L) }
+    // ファイル名と再生バーは、操作がなければ自動で隠れる（タップで出し入れ）
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interactionTick by remember { mutableStateOf(0) }
     var panX by remember { mutableStateOf(0f) }
     var panY by remember { mutableStateOf(0f) }
     // 回転に追従：横画面では「画面いっぱい」、縦画面では「全体表示」を既定にする
@@ -111,6 +121,12 @@ fun PlayerScreen(
         onDispose {
             player.removeListener(listener)
             player.release()
+        }
+    }
+    LaunchedEffect(controlsVisible, interactionTick, playing, seeking) {
+        if (controlsVisible && playing && !seeking) {
+            delay(3500)
+            controlsVisible = false
         }
     }
     LaunchedEffect(player) {
@@ -172,9 +188,13 @@ fun PlayerScreen(
                         }
                     }
                     .pointerInput(Unit) {
-                        detectTapGestures(onDoubleTap = {
-                            zoom = 1f; panX = 0f; panY = 0f
-                        })
+                        detectTapGestures(
+                            onPress = { interactionTick++ },
+                            onTap = { controlsVisible = !controlsVisible },
+                            onDoubleTap = {
+                                zoom = 1f; panX = 0f; panY = 0f
+                            },
+                        )
                     },
             )
             // 横スワイプでシーク（ズーム中はパン優先なので無効）。離した時点で移動する。
@@ -222,14 +242,6 @@ fun PlayerScreen(
                         },
                 )
             }
-            if (queueLabel.isNotEmpty()) {
-                Text(
-                    text = queueLabel,
-                    color = Color.White,
-                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
-                        .background(Color(0x66000000)).padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
             if (swipeSeeking) {
                 val target = (swipeStartPos + swipeDeltaMs).coerceIn(0L, maxOf(duration, 0L))
                 val deltaSec = (target - swipeStartPos) / 1000
@@ -242,6 +254,25 @@ fun PlayerScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
+            FadeVisible(
+                visible = controlsVisible,
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.background(Color(0x66000000)),
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                    }
+                    Text(title, color = Color.White, maxLines = 1)
+                    if (queueLabel.isNotEmpty()) {
+                        Text(queueLabel, color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(start = 8.dp, end = 12.dp))
+                    } else {
+                        Spacer(Modifier.width(12.dp))
+                    }
+                }
+            }
             if (zoom > 1f) {
                 Text(
                     text = "${(zoom * 100).toInt()}%",
@@ -251,7 +282,8 @@ fun PlayerScreen(
                 )
             }
         }
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(fmtTime(if (seeking) seekPos.toLong() else position), color = Color.White)
                 Slider(
@@ -310,6 +342,7 @@ fun PlayerScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
+            }
         }
     }
 }

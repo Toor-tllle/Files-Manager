@@ -18,10 +18,14 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -375,6 +379,12 @@ private fun ImmersiveSystemBars() {
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
+}
+
+/** Column 配下でも使えるフェード表示ヘルパー（AnimatedVisibility のスコープ競合回避）。 */
+@Composable
+fun FadeVisible(visible: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    AnimatedVisibility(visible = visible, modifier = modifier, enter = fadeIn(), exit = fadeOut()) { content() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -863,7 +873,6 @@ private fun LocalItemRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
     ImmersiveSystemBars()
@@ -874,58 +883,38 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
     var resolved by remember(nav) { mutableStateOf<String?>(null) }
     var resolveFailed by remember(nav) { mutableStateOf(false) }
     LaunchedEffect(idx, nav) {
-        resolved = null; resolveFailed = false
+        resolved = null
+        resolveFailed = false
         val item = queue.getOrNull(idx)
-        val conn = nav.conn
-        val ls = item?.localSource
-        val np = item?.nasPath
-        resolved = when {
-            queue.isEmpty() -> nav.source
-            ls != null -> ls
-            conn != null && np != null -> {
-                val u = withContext(Dispatchers.IO) {
-                    runCatching { SmbRepo.streamUrl(conn, NasEntry(item?.title ?: "", np, false, 0)) }.getOrNull()
-                }
-                if (u == null) resolveFailed = true
-                u
-            }
-            else -> null
-        }
-        if (resolved == null && queue.isNotEmpty()) resolveFailed = true
-    }
-    Scaffold(
-        topBar = {
-            if (!landscape) TopAppBar(
-                title = { Text(title, maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
-                ),
-            )
-        },
-        containerColor = Color.Black,
-    ) { pad ->
-        Box(modifier = Modifier.padding(pad).fillMaxSize()) {
-            val src = resolved
+        resolved = try {
             when {
-                src != null -> key(idx) {
-                    PlayerScreen(
-                        source = src, title = title,
-                        hasPrev = idx > 0, hasNext = idx < queue.size - 1,
-                        queueLabel = if (queue.size > 1) "${idx + 1} / ${queue.size}" else "",
-                        landscape = landscape,
-                        onPrev = { if (idx > 0) idx-- },
-                        onNext = { if (idx < queue.size - 1) idx++ },
-                    )
+                item?.localSource != null -> item.localSource
+                item?.nasPath != null && nav.conn != null -> withContext(Dispatchers.IO) {
+                    SmbRepo.streamUrl(nav.conn, NasEntry(item.title, item.nasPath, false, 0))
                 }
-                resolveFailed -> Text("読み込めませんでした", color = Color.White, modifier = Modifier.align(Alignment.Center))
-                else -> CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
+                else -> nav.source
             }
+        } catch (e: Exception) {
+            resolveFailed = true
+            null
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+        val src = resolved
+        when {
+            src != null -> key(idx) {
+                PlayerScreen(
+                    source = src, title = title,
+                    hasPrev = idx > 0, hasNext = idx < queue.size - 1,
+                    queueLabel = if (queue.size > 1) "${idx + 1} / ${queue.size}" else "",
+                    landscape = landscape,
+                    onPrev = { if (idx > 0) idx-- },
+                    onNext = { if (idx < queue.size - 1) idx++ },
+                    onBack = onBack,
+                )
+            }
+            resolveFailed -> Text("読み込めませんでした", color = Color.White, modifier = Modifier.align(Alignment.Center))
+            else -> CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
         }
     }
 }
@@ -934,13 +923,21 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
 @Composable
 private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
     ImmersiveSystemBars()
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
     val images = remember(nav) {
         if (nav.images.isNotEmpty()) nav.images
         else listOf(ImageRef(nav.title, nav.source, nav.nasPath))
     }
     var idx by remember(nav) { mutableStateOf(nav.index.coerceIn(0, maxOf(images.size - 1, 0))) }
+    // ファイル名バーは操作がなければ自動で隠れる（タップで出し入れ）
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interactionTick by remember { mutableStateOf(0) }
+    LaunchedEffect(controlsVisible, interactionTick, idx) {
+        if (controlsVisible) {
+            kotlinx.coroutines.delay(3000)
+            controlsVisible = false
+        }
+    }
     var bmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(idx, nav) {
@@ -964,20 +961,6 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
         }
     }
     Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        if (!landscape) {
-            TopAppBar(
-                title = { Text(images[idx].title, maxLines = 1) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
-                    titleContentColor = Color.White,
-                ),
-            )
-        }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             when {
                 bmp != null -> Image(
@@ -989,6 +972,30 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
                 error != null -> Text(error!!, color = Color.White)
                 else -> CircularProgressIndicator(color = Color.White)
             }
+            // 上部オーバーレイ（戻る＋ファイル名）…自動で隠れる
+            FadeVisible(
+                visible = controlsVisible,
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.background(Color(0x66000000)),
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                    }
+                    Text(images[idx].title, color = Color.White, maxLines = 1, modifier = Modifier.padding(end = 12.dp))
+                }
+            }
+            // タップでバーの表示/非表示
+            Box(
+                modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = { interactionTick++ },
+                        onTap = { controlsVisible = !controlsVisible },
+                    )
+                },
+            )
             if (images.size > 1) {
                 // 横スワイプで前後の画像へ
                 Box(
@@ -1004,7 +1011,7 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
                         )
                     },
                 )
-                Text(
+                if (controlsVisible) Text(
                     "${idx + 1} / ${images.size}",
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
