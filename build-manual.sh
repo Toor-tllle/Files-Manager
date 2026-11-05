@@ -47,7 +47,7 @@ EXTRAPKGS=${EXTRAPKGS#:}
 echo "extra packages: $EXTRAPKGS"
 
 # 3) Processed manifest (aapt2 needs package + version + uses-sdk in the manifest)
-sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="8" android:versionName="0.1.7">|' \
+sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="9" android:versionName="0.1.8">|' \
     -e 's|<application|<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" /><application|' \
     $PROJ/app/src/main/AndroidManifest.xml > $B/AndroidManifest.xml
 
