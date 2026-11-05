@@ -82,17 +82,41 @@ object SmbRepo {
      * 共有フォルダの探索。まず jcifs で実列挙し、取れなければ smbj の総当たりに切り替える
      * （総当たりで全滅したらセッションを作り直してもう一度だけ試す）。認証失敗は例外で返す。
      */
+    /** 直近の discoverShares で共有が取れなかった理由（診断表示用）。 */
+    @Volatile var lastDiscoverNote: String = ""
+        private set
+
     fun discoverShares(conn: NasConnection): List<String> {
-        val viaEnum = runCatching { ShareEnum.listShares(conn) }.getOrDefault(emptyList())
-        if (viaEnum.isNotEmpty()) return viaEnum
-        ensureSession(conn) // ここで認証を確定させる（失敗なら例外）
-        var found = probeShares(conn)
-        if (found.isEmpty()) {
-            disconnect()
-            ensureSession(conn)
-            found = probeShares(conn)
+        var enumError: String? = null
+        val viaEnum = try {
+            ShareEnum.listShares(conn)
+        } catch (e: Exception) {
+            enumError = "${e.javaClass.simpleName}: ${e.message}"
+            emptyList()
         }
-        return found
+        var probeError: Exception? = null
+        val viaProbe = try {
+            ensureSession(conn)
+            var f = probeShares(conn)
+            if (f.isEmpty()) {
+                disconnect()
+                ensureSession(conn)
+                f = probeShares(conn)
+            }
+            f
+        } catch (e: Exception) {
+            probeError = e
+            emptyList()
+        }
+        val merged = (viaEnum + viaProbe).distinct()
+        lastDiscoverNote = when {
+            merged.isNotEmpty() -> ""
+            enumError != null -> "一覧の取得でエラー: $enumError"
+            else -> "一覧も総当たりも0件でした"
+        }
+        // どちらからも取れず、総当たり側が認証エラー等で落ちた場合は従来通り例外にする
+        if (merged.isEmpty() && probeError != null) throw probeError
+        return merged
     }
 
     /** 指定した共有名が開けるかテストする。 */
@@ -120,13 +144,16 @@ object SmbRepo {
 
     @Synchronized
     fun ensureConnected(conn: NasConnection): DiskShare {
-        val existing = shares[conn.id]
+        // キャッシュは「接続先ID＋共有名」で引く。IDだけだと最初に開いた共有が返り続け、
+        // 別の共有フォルダを開いても前のフォルダに戻ってしまうバグになる。
+        val cacheKey = "${conn.id}|${conn.share}"
+        val existing = shares[cacheKey]
         if (existing != null && sessionKey == "${conn.host}|${conn.username}" && connection?.isConnected == true) {
             return existing
         }
         val s = ensureSession(conn)
         val share = s.connectShare(conn.share) as DiskShare
-        shares[conn.id] = share
+        shares[cacheKey] = share
         connectedKey = "${conn.host}|${conn.share}|${conn.username}"
         return share
     }

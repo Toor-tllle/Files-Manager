@@ -1161,9 +1161,17 @@ private fun NasSharesScreen(
                     item {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            "よくある名前の共有フォルダは見つかりませんでした。下の「見つからない場合はこちら」から共有フォルダ名を入力して開いてね。",
+                            "共有フォルダが見つかりませんでした。下の「見つからない場合はこちら」から共有フォルダ名を入力して開いてね。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (SmbRepo.lastDiscoverNote.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "（診断: ${SmbRepo.lastDiscoverNote}）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
                 items(shares!!, key = { it }) { name ->
@@ -1227,7 +1235,7 @@ private fun NasBrowseScreen(
             try {
                 entries = withContext(Dispatchers.IO) { SmbRepo.list(conn, path) }
             } catch (e: Exception) {
-                error = "保存アカウントで自動ログインを試しましたが、接続できませんでした。\n" + SmbRepo.describeError(e) + "\n\nパスワードが変わっている場合は「接続先」から編集してね。"
+                error = "保存アカウントで自動ログインを試しましたが、接続できませんでした。\n" + SmbRepo.describeError(e) + "\n（詳細: " + e.javaClass.simpleName + ": " + (e.message ?: "") + "）" + "\n\nパスワードが変わっている場合は「接続先」から編集してね。"
             }
         }
     }
