@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "0.1.1",
+  "versionCode": 3,
+  "versionName": "0.1.2",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.1：更新先リポジトリ名を Files-Manager に修正（初版v0.1.0は手動でこの版に入れ替えてください）。ライトテーマのホーム、SMB NAS（アカウント保存・自動ログイン）、アプリ内動画再生、GitHub更新、ダウンロード進捗通知。"
+  "notes": "v0.1.2：クラッシュ記録機能を追加（落ちた場合は再起動時に理由が表示されます）。読み込み処理の防御も強化。"
 }

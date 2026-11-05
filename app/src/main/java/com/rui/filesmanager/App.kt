@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -128,6 +130,7 @@ fun FilesManagerApp() {
     openSettingsCallback = { if (nav !is Nav.Settings) push(Nav.Settings) }
 
     var startupUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    var crashText by remember { mutableStateOf(CrashLog.read(context)) }
     var startupChecked by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (!startupChecked && Updater.autoCheck(store)) {
@@ -161,6 +164,31 @@ fun FilesManagerApp() {
 
     MaterialTheme(colorScheme = LightColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            crashText?.let { text ->
+                AlertDialog(
+                    onDismissRequest = { CrashLog.clear(context); crashText = null },
+                    title = { Text("前回クラッシュしました") },
+                    text = {
+                        Column(modifier = Modifier.height(320.dp).verticalScroll(rememberScrollState())) {
+                            Text(text, style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_TEXT, text)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "クラッシュ記録を共有"))
+                            } catch (e: Exception) { /* noop */ }
+                        }) { Text("共有") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { CrashLog.clear(context); crashText = null }) { Text("消して閉じる") }
+                    },
+                )
+            }
             startupUpdate?.let { info ->
                 AlertDialog(
                     onDismissRequest = { startupUpdate = null },
@@ -525,8 +553,10 @@ private fun LocalListScreen(
     val context = LocalContext.current
     var itemsState by remember { mutableStateOf<List<LocalItem>?>(null) }
     var sortMode by remember { mutableStateOf(0) } // 0=新しい順 1=名前 2=サイズ
+    var loadError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
-        itemsState = withContext(Dispatchers.IO) { loader() }
+        val r = withContext(Dispatchers.IO) { runCatching { loader() } }
+        r.onSuccess { itemsState = it }.onFailure { loadError = it.message; itemsState = emptyList() }
     }
     val sorted = remember(itemsState, sortMode) {
         val base = itemsState ?: emptyList()
@@ -557,7 +587,10 @@ private fun LocalListScreen(
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (current.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("ファイルがありません（権限を許可してね）", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (loadError != null) "読み込みに失敗しました: $loadError" else "ファイルがありません（権限を許可してね）",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1219,12 +1252,12 @@ private fun FavoritesScreen(
     val context = LocalContext.current
     var localItems by remember { mutableStateOf<List<LocalItem>>(emptyList()) }
     LaunchedEffect(favorites) {
-        localItems = withContext(Dispatchers.IO) {
+        localItems = withContext(Dispatchers.IO) { runCatching {
             val ids = favorites.filter { it.startsWith("L|") }
                 .mapNotNull { it.removePrefix("L|").substringAfterLast('/').toLongOrNull() }.toSet()
             if (ids.isEmpty()) emptyList()
             else LocalRepo.query(context.contentResolver, Category.RECENT, 2000).filter { it.id in ids }
-        }
+        }.getOrElse { emptyList() } }
     }
     val nasFavs = favorites.filter { it.startsWith("N|") }
     Column(modifier = Modifier.fillMaxSize()) {
