@@ -1,6 +1,6 @@
 {
-  "versionCode": 29,
-  "versionName": "0.2.18",
+  "versionCode": 30,
+  "versionName": "1.0",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.18：NASの一覧と「フォルダを開く」の一覧で、動画・画像ファイルにサムネイル（動画は1コマ、画像はその画像）を表示するようにしました。取れないファイルは今まで通りアイコン表示です。本体の一覧のサムネイルもキャッシュして速くしました。"
+  "notes": "v1.0：正式版にしました。設定画面も含め、各画面の上のバーにあった設定（歯車）をすべて外しました。設定へは下のタブバーから開けます。"
 }

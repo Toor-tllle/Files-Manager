@@ -143,7 +143,6 @@ sealed class Nav {
     data object Settings : Nav()
 }
 
-private var openSettingsCallback: (() -> Unit)? = null
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF3E60D2),
@@ -182,7 +181,6 @@ fun FilesManagerApp() {
         navStack.add(root)
     }
     fun backOrMain() { if (navStack.size > 1) pop() else switchTab(0) }
-    openSettingsCallback = { if (nav !is Nav.Settings) push(Nav.Settings) }
 
     var startupUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var crashText by remember { mutableStateOf(CrashLog.read(context)) }
@@ -433,19 +431,12 @@ fun FadeVisible(visible: Boolean, modifier: Modifier = Modifier, content: @Compo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SimpleBar(title: String, onBack: () -> Unit, showSettings: Boolean = true) {
+private fun SimpleBar(title: String, onBack: () -> Unit) {
     TopAppBar(
         title = { Text(title, fontWeight = FontWeight.Bold) },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
-            }
-        },
-        actions = {
-            if (showSettings) {
-                IconButton(onClick = { openSettingsCallback?.invoke() }) {
-                    Icon(Icons.Filled.Settings, contentDescription = "設定")
-                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -1368,7 +1359,7 @@ private fun NasHomeScreen(
 ) {
     var confirmDelete by remember { mutableStateOf<NasConnection?>(null) }
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar("ネットワーク・NAS", onBack, showSettings = false)
+        SimpleBar("ネットワーク・NAS", onBack)
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             if (connections.isEmpty()) {
                 item {
@@ -1505,7 +1496,7 @@ private fun NasEditScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(if (initial == null) "NASを追加" else "NASを編集", onBack, showSettings = false)
+        SimpleBar(if (initial == null) "NASを追加" else "NASを編集", onBack)
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             item {
                 Text(
@@ -1696,7 +1687,7 @@ private fun NasSharesScreen(
     LaunchedEffect(conn.id) { reload() }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(conn.label.ifBlank { conn.host }, onBack, showSettings = false)
+        SimpleBar(conn.label.ifBlank { conn.host }, onBack)
         Text(
             "smb://${conn.host} ・ 直下のフォルダ",
             style = MaterialTheme.typography.bodySmall,
@@ -1869,7 +1860,6 @@ private fun NasBrowseScreen(
             SimpleBar(
                 if (path.isEmpty()) (conn.label.ifBlank { conn.host }) else path.substringAfterLast('\\'),
                 onBack,
-                showSettings = false,
             )
         }
         BackHandler(enabled = selectMode) { selectMode = false; selected = emptySet() }
@@ -2402,7 +2392,7 @@ private fun NasPickScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(if (move) "NASへ移動：送信先を選ぶ" else "NASへコピー：送信先を選ぶ", onBack = { stagedBack() }, showSettings = false)
+        SimpleBar(if (move) "NASへ移動：送信先を選ぶ" else "NASへコピー：送信先を選ぶ", onBack = { stagedBack() })
         Text(
             when {
                 conn == null -> "送信先のNASを選んでね（${sources.size}件）"
