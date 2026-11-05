@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "0.1.4",
+  "versionCode": 6,
+  "versionName": "0.1.5",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.4：起動切り分け版。最初に素の診断ランチャーが開き、記録表示と「本編を開く」ボタンから通常画面へ進みます。"
+  "notes": "v0.1.5：起動直後クラッシュの原因（ライブラリのRクラス欠落）を修正。通常の1画面構成に戻しました。"
 }

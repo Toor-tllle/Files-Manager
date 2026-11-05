@@ -25,43 +25,29 @@ done
 $BT/aapt2 compile --dir $PROJ/app/src/main/res -o $B/flats/app.zip
 LIBRES=""
 EXTRAPKGS=""
-declare -A PKGMAP=(
- [ui-android-1.7.6]="androidx.compose.ui"
- [foundation-android-1.7.6]="androidx.compose.foundation"
- [foundation-layout-android-1.7.6]="androidx.compose.foundation.layout"
- [material3-android-1.3.1]="androidx.compose.material3"
- [activity-1.9.3]="androidx.activity"
- [core-1.15.0]="androidx.core"
- [lifecycle-runtime-2.8.7]="androidx.lifecycle.runtime"
- [animation-android-1.7.6]="androidx.compose.animation"
- [ui-text-android-1.7.6]="androidx.compose.ui.text"
- [ui-graphics-android-1.7.6]="androidx.compose.ui.graphics"
- [material-ripple-android-1.7.6]="androidx.compose.material.ripple"
- [runtime-saveable-android-1.7.6]="androidx.compose.runtime.saveable"
- [core-runtime-2.2.0]="androidx.arch.core"
- [versionedparcelable-1.1.1]="androidx.versionedparcelable"
- [profileinstaller-1.3.1]="androidx.profileinstaller"
- [savedstate-1.2.1]="androidx.savedstate"
- [interpolator-1.0.0]="androidx.interpolator"
- [autofill-1.0.0]="androidx.autofill"
- [tracing-1.2.0]="androidx.tracing"
- [annotation-experimental-1.4.1]="androidx.annotation.experimental"
- [material-icons-core-android-1.7.6]="androidx.compose.material.icons"
- [media3-exoplayer-1.5.1]="androidx.media3.exoplayer"
-)
-for n in "${!PKGMAP[@]}"; do
-  d=$B/aars/$n/res
-  if [ -d "$d" ] && [ -n "$(find $d -type f | head -1)" ]; then
-    $BT/aapt2 compile --dir $d -o $B/flats/$n.zip
-    LIBRES="$LIBRES $B/flats/$n.zip"
-    EXTRAPKGS="$EXTRAPKGS:${PKGMAP[$n]}"
+# Auto-derive each library's R package from its own AAR manifest (hand-maintained
+# maps missed e.g. lifecycle-runtime-android -> androidx.lifecycle.runtime, whose
+# missing R$id class crashed ComponentActivity.setContentView at launch).
+declare -A SEENPKG=()
+for d in $B/aars/*/; do
+  n=$(basename $d)
+  if [ -d "$d/res" ] && [ -n "$(find $d/res -type f | head -1)" ]; then
+    pkg=$(grep -o 'package="[^"]*"' $d/AndroidManifest.xml | head -1 | sed 's/package="//; s/"//')
+    if [ -n "$pkg" ]; then
+      $BT/aapt2 compile --dir $d/res -o $B/flats/$n.zip
+      LIBRES="$LIBRES $B/flats/$n.zip"
+      if [ -z "${SEENPKG[$pkg]:-}" ]; then
+        SEENPKG[$pkg]=1
+        EXTRAPKGS="$EXTRAPKGS:$pkg"
+      fi
+    fi
   fi
 done
 EXTRAPKGS=${EXTRAPKGS#:}
 echo "extra packages: $EXTRAPKGS"
 
 # 3) Processed manifest (aapt2 needs package + version + uses-sdk in the manifest)
-sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="5" android:versionName="0.1.4">|' \
+sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="6" android:versionName="0.1.5">|' \
     -e 's|<application|<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" /><application|' \
     $PROJ/app/src/main/AndroidManifest.xml > $B/AndroidManifest.xml
 
