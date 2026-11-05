@@ -78,6 +78,23 @@ object SmbRepo {
         return found
     }
 
+    /**
+     * 共有フォルダの探索。まず jcifs で実列挙し、取れなければ smbj の総当たりに切り替える
+     * （総当たりで全滅したらセッションを作り直してもう一度だけ試す）。認証失敗は例外で返す。
+     */
+    fun discoverShares(conn: NasConnection): List<String> {
+        val viaEnum = runCatching { ShareEnum.listShares(conn) }.getOrDefault(emptyList())
+        if (viaEnum.isNotEmpty()) return viaEnum
+        ensureSession(conn) // ここで認証を確定させる（失敗なら例外）
+        var found = probeShares(conn)
+        if (found.isEmpty()) {
+            disconnect()
+            ensureSession(conn)
+            found = probeShares(conn)
+        }
+        return found
+    }
+
     /** 指定した共有名が開けるかテストする。 */
     @Synchronized
     fun testShare(conn: NasConnection, shareName: String): Boolean {
@@ -96,7 +113,7 @@ object SmbRepo {
     }
 
     val COMMON_SHARES = listOf(
-        "share", "public", "Public", "home", "homes", "data", "Data",
+        "share", "info", "public", "Public", "home", "homes", "data", "Data",
         "multimedia", "Multimedia", "Download", "download", "photo", "Photo",
         "music", "Music", "video", "Video", "disk", "volume1", "nas", "NAS",
     )

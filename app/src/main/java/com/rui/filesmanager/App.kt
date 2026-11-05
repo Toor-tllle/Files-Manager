@@ -1021,8 +1021,7 @@ private fun NasEditScreen(
                         scope.launch {
                             val r = withContext(Dispatchers.IO) {
                                 runCatching {
-                                    SmbRepo.loginTest(c)
-                                    SmbRepo.probeShares(c)
+                                    SmbRepo.discoverShares(c)
                                 }
                             }
                             busy = ""
@@ -1127,8 +1126,7 @@ private fun NasSharesScreen(
         scope.launch {
             val r = withContext(Dispatchers.IO) {
                 runCatching {
-                    SmbRepo.loginTest(conn)
-                    SmbRepo.probeShares(conn)
+                    SmbRepo.discoverShares(conn)
                 }
             }
             r.onSuccess { shares = it }

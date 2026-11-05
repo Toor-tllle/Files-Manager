@@ -1,6 +1,6 @@
 {
-  "versionCode": 14,
-  "versionName": "0.2.3",
+  "versionCode": 15,
+  "versionName": "0.2.4",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.3：NASはログインできたら設定完了（共有を選ばずそのまま保存）。NASを開くと直下のフォルダがそのまま並びます。動画プレーヤーの大きさ調整（全体／画面いっぱい、ピンチズーム）と、ホームのヘッダーがステータスバーに埋もれる問題の修正も含みます。"
+  "notes": "v0.2.4：共有フォルダを名前の総当たりではなく、NASから実際の共有一覧を取得する方式に変更（Buffalo LinkStation等で直下のフォルダが出ない問題への対応）。NASを開くと実際の共有フォルダがそのまま並びます。"
 }
