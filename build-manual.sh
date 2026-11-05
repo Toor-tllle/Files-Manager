@@ -17,6 +17,7 @@ for a in $DEPS/*.aar; do
   unzip -q -o $a -d $B/aars/$n
 done
 ls $B/aars/*/classes.jar > $B/libjars.txt
+find $B/aars -path '*/libs/*.jar' >> $B/libjars.txt
 for j in $DEPS/*.jar; do
   case "$j" in *compiler-embeddable*|*trove4j*) ;; *) echo $j >> $B/libjars.txt;; esac
 done
@@ -47,7 +48,7 @@ EXTRAPKGS=${EXTRAPKGS#:}
 echo "extra packages: $EXTRAPKGS"
 
 # 3) Processed manifest (aapt2 needs package + version + uses-sdk in the manifest)
-sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="9" android:versionName="0.1.8">|' \
+sed -e 's|<manifest xmlns:android="http://schemas.android.com/apk/res/android">|<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.rui.filesmanager" android:versionCode="10" android:versionName="0.1.9">|' \
     -e 's|<application|<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" /><application|' \
     $PROJ/app/src/main/AndroidManifest.xml > $B/AndroidManifest.xml
 

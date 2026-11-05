@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "0.1.8",
+  "versionCode": 10,
+  "versionName": "0.1.9",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.8：切り分け版。診断ランチャーから Compose最小テスト画面と本編を別々に開けます。"
+  "notes": "v0.1.9：Compose の文字表示に必須の emoji2 部品が欠けていた問題を修正。通常構成で起動します。"
 }

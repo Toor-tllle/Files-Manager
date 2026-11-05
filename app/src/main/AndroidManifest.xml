@@ -27,11 +27,5 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".HelloActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ComposeHostActivity"
-            android:exported="false" />
     </application>
 </manifest>
