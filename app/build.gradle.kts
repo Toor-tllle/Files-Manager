@@ -12,8 +12,8 @@ android {
         applicationId = "com.rui.filesmanager"
         minSdk = 29
         targetSdk = 36
-        versionCode = 25
-        versionName = "0.2.14"
+        versionCode = 27
+        versionName = "0.2.16"
     }
 
     buildTypes {
