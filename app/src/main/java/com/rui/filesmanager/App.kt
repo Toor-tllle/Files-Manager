@@ -260,7 +260,7 @@ fun FilesManagerApp() {
                     },
                 )
             }
-            Column(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
                 Box(modifier = Modifier.weight(1f)) {
                     when (val n = nav) {
                 is Nav.Home -> HomeScreen(
@@ -450,7 +450,7 @@ private fun SimpleBar(title: String, onBack: () -> Unit) {
 @Composable
 private fun BottomTabBar(currentTab: Int, onSelect: (Int) -> Unit, onSearch: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
@@ -529,7 +529,7 @@ private fun DeviceFilesScreen(
             fs.totalBytes to fs.availableBytes
         } catch (e: Exception) { 0L to 0L }
     }
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -682,7 +682,7 @@ private fun HomeScreen(
         } catch (e: Exception) { 0L to 0L }
     }
 
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
