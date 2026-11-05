@@ -1003,6 +1003,87 @@ private fun LocalListScreen(
     }
 }
 
+/** NAS一覧のサムネイル（取れない場合は種類アイコン）。 */
+@Composable
+private fun NasThumbBox(conn: NasConnection, entry: NasEntry) {
+    val key = "N|${conn.id}|${entry.path}"
+    var bmp by remember(key) { mutableStateOf(ThumbCache.get(key)) }
+    LaunchedEffect(key) {
+        if (bmp == null && !entry.isDir && (entry.isVideo || entry.isImage)) {
+            val b = withContext(Dispatchers.IO) { NasThumbs.load(conn, entry) }
+            if (b != null) { ThumbCache.put(key, b); bmp = b }
+        }
+    }
+    if (bmp != null) {
+        Image(
+            bitmap = bmp!!.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+        )
+    } else {
+        Box(
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                when {
+                    entry.isDir -> AppIcons.Folder
+                    entry.isVideo -> AppIcons.Movie
+                    entry.isAudio -> AppIcons.MusicNote
+                    entry.isImage -> AppIcons.Image
+                    else -> AppIcons.InsertDriveFile
+                },
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/** フォルダ（SAF）一覧のサムネイル。 */
+@Composable
+private fun SafThumbBox(uri: android.net.Uri, mime: String, isDir: Boolean) {
+    val context = LocalContext.current
+    val key = "S|$uri"
+    var bmp by remember(key) { mutableStateOf(ThumbCache.get(key)) }
+    LaunchedEffect(key) {
+        if (bmp == null && !isDir && (mime.startsWith("image/") || mime.startsWith("video/"))) {
+            val b = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.loadThumbnail(uri, android.util.Size(256, 256), null) }.getOrNull()
+            }
+            if (b != null) { ThumbCache.put(key, b); bmp = b }
+        }
+    }
+    if (bmp != null) {
+        Image(
+            bitmap = bmp!!.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+        )
+    } else {
+        Box(
+            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                when {
+                    isDir -> AppIcons.Folder
+                    mime.startsWith("video/") -> AppIcons.Movie
+                    mime.startsWith("audio/") -> AppIcons.MusicNote
+                    mime.startsWith("image/") -> AppIcons.Image
+                    else -> AppIcons.InsertDriveFile
+                },
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun LocalItemRow(
@@ -1016,9 +1097,13 @@ private fun LocalItemRow(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    var thumb by remember(item.uri) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    val thumbKey = "L|${item.uri}"
+    var thumb by remember(item.uri) { mutableStateOf(ThumbCache.get(thumbKey)) }
     LaunchedEffect(item.uri) {
-        thumb = withContext(Dispatchers.IO) { LocalRepo.thumbnail(context.contentResolver, item) }
+        if (thumb == null) {
+            val b = withContext(Dispatchers.IO) { LocalRepo.thumbnail(context.contentResolver, item) }
+            if (b != null) { ThumbCache.put(thumbKey, b); thumb = b }
+        }
     }
     var menu by remember { mutableStateOf(false) }
     val dateStr = remember(item.modified) {
@@ -1886,18 +1971,7 @@ private fun NasBrowseScreen(
                             })
                             Spacer(Modifier.width(4.dp))
                         }
-                        Icon(
-                            when {
-                                e.isDir -> AppIcons.Folder
-                                e.isVideo -> AppIcons.Movie
-                                e.isAudio -> AppIcons.MusicNote
-                                e.isImage -> AppIcons.Image
-                                else -> AppIcons.InsertDriveFile
-                            },
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp),
-                        )
+                        NasThumbBox(conn, e)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(e.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 2)
@@ -2127,12 +2201,7 @@ private fun SafBrowseScreen(
                             })
                             Spacer(Modifier.width(4.dp))
                         }
-                        Icon(
-                            if (f.isDirectory) AppIcons.Folder else AppIcons.InsertDriveFile,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp),
-                        )
+                        SafThumbBox(f.uri, mime, f.isDirectory)
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(f.name ?: "(名称なし)", style = MaterialTheme.typography.bodyMedium, maxLines = 2)
