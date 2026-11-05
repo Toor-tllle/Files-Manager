@@ -1,6 +1,6 @@
 {
-  "versionCode": 18,
-  "versionName": "0.2.7",
+  "versionCode": 19,
+  "versionName": "0.2.8",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.7：ファイルの長押しで複数選択モード（一括削除に対応。NAS側は一括ダウンロードも）。本体のファイルを選んで「NASへコピー／NASへ移動」で、送信先のNAS・共有・フォルダを選んでアップロードできるようになりました（移動は送信後に本体側を削除）。"
+  "notes": "v0.2.8：画像表示中に左右へスワイプすると前後の画像に切り替わるようになりました（下に 3/12 のような位置表示）。動画・音声は同じフォルダ/カテゴリ内を連続再生でき、上下スワイプ（上=次、下=前）か「前へ/次へ」ボタンで切り替わります。横スワイプのシークは今まで通りです。"
 }

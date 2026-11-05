@@ -74,3 +74,9 @@ fun parentSmbPath(path: String): String =
 
 /** 本体→NAS 転送の対象（ローカル/SAF 共通の表現）。 */
 data class UploadSource(val uri: String, val name: String, val size: Long)
+
+/** プレーヤーの再生キュー要素。localSource か nasPath のどちらかが入る。 */
+data class PlayQueueItem(val title: String, val localSource: String? = null, val nasPath: String? = null)
+
+/** 画像ビューアの送り先リスト要素。 */
+data class ImageRef(val title: String, val source: String = "", val nasPath: String = "")

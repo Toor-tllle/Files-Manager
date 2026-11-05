@@ -3,6 +3,7 @@ package com.rui.filesmanager
 import android.view.SurfaceView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -61,7 +62,15 @@ private fun fmtTime(ms: Long): String {
  * ピンチでのズーム（1〜4倍）＋ドラッグでの移動、ダブルタップでリセット。
  */
 @Composable
-fun PlayerScreen(source: String, title: String) {
+fun PlayerScreen(
+    source: String,
+    title: String,
+    hasPrev: Boolean = false,
+    hasNext: Boolean = false,
+    queueLabel: String = "",
+    onPrev: () -> Unit = {},
+    onNext: () -> Unit = {},
+) {
     val context = LocalContext.current
     val player = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -190,6 +199,31 @@ fun PlayerScreen(source: String, title: String) {
                         },
                 )
             }
+            // 縦スワイプで前後のファイルへ（上=次、下=前）
+            if (hasPrev || hasNext) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .pointerInput(hasPrev, hasNext) {
+                            var totalDy = 0f
+                            detectVerticalDragGestures(
+                                onDragStart = { totalDy = 0f },
+                                onVerticalDrag = { _, dy -> totalDy += dy },
+                                onDragEnd = {
+                                    if (totalDy < -90f) onNext()
+                                    else if (totalDy > 90f) onPrev()
+                                },
+                            )
+                        },
+                )
+            }
+            if (queueLabel.isNotEmpty()) {
+                Text(
+                    text = queueLabel,
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
+                        .background(Color(0x66000000)).padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
             if (swipeSeeking) {
                 val target = (swipeStartPos + swipeDeltaMs).coerceIn(0L, maxOf(duration, 0L))
                 val deltaSec = (target - swipeStartPos) / 1000
@@ -231,6 +265,11 @@ fun PlayerScreen(source: String, title: String) {
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (hasPrev || hasNext) {
+                    TextButton(onClick = onPrev, enabled = hasPrev) {
+                        Text("前へ", color = if (hasPrev) Color.White else Color.Gray)
+                    }
+                }
                 TextButton(onClick = {
                     fillMode = !fillMode
                     zoom = 1f; panX = 0f; panY = 0f
@@ -252,6 +291,11 @@ fun PlayerScreen(source: String, title: String) {
                 }
                 IconButton(onClick = { player.seekTo(player.currentPosition + 30000) }) {
                     Text("+30", color = Color.White)
+                }
+                if (hasPrev || hasNext) {
+                    TextButton(onClick = onNext, enabled = hasNext) {
+                        Text("次へ", color = if (hasNext) Color.White else Color.Gray)
+                    }
                 }
                 if (zoom > 1f) {
                     TextButton(onClick = { zoom = 1f; panX = 0f; panY = 0f }) {

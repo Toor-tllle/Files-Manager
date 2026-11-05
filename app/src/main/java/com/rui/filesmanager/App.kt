@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -80,6 +82,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -103,8 +106,17 @@ sealed class Nav {
     data class NasEdit(val conn: NasConnection?) : Nav()
     data class NasBrowse(val conn: NasConnection, val path: String) : Nav()
     data class NasShares(val conn: NasConnection) : Nav()
-    data class Play(val source: String, val title: String) : Nav()
-    data class ViewImage(val source: String, val title: String, val isNas: Boolean, val conn: NasConnection? = null, val nasPath: String = "") : Nav()
+    data class Play(
+        val source: String, val title: String,
+        val conn: NasConnection? = null,
+        val queue: List<PlayQueueItem> = emptyList(),
+        val queueIndex: Int = 0,
+    ) : Nav()
+    data class ViewImage(
+        val source: String, val title: String, val isNas: Boolean,
+        val conn: NasConnection? = null, val nasPath: String = "",
+        val images: List<ImageRef> = emptyList(), val index: Int = 0,
+    ) : Nav()
     data class SafBrowse(val treeUri: String) : Nav()
     data class NasPick(val sources: List<UploadSource>, val move: Boolean) : Nav()
     data object Favorites : Nav()
@@ -235,8 +247,8 @@ fun FilesManagerApp() {
                         favorites = if (key in favorites) favorites - key else favorites + key
                         store.saveFavorites(favorites)
                     },
-                    onPlay = { push(Nav.Play(it.uri.toString(), it.name)) },
-                    onViewImage = { push(Nav.ViewImage(it.uri.toString(), it.name, isNas = false)) },
+                    onPlay = { item, q -> push(Nav.Play(item.uri.toString(), item.name, queue = q.map { PlayQueueItem(it.name, localSource = it.uri.toString()) }, queueIndex = q.indexOf(item))) },
+                    onViewImage = { item, imgs -> push(Nav.ViewImage(item.uri.toString(), item.name, isNas = false, images = imgs.map { ImageRef(it.name, source = it.uri.toString()) }, index = imgs.indexOf(item))) },
                     onUpload = { items, mv -> push(Nav.NasPick(items.map { UploadSource(it.uri.toString(), it.name, it.size) }, mv)) },
                     onBack = { pop() },
                     refreshKey = listRefreshTick,
@@ -250,8 +262,8 @@ fun FilesManagerApp() {
                         favorites = if (key in favorites) favorites - key else favorites + key
                         store.saveFavorites(favorites)
                     },
-                    onPlay = { push(Nav.Play(it.uri.toString(), it.name)) },
-                    onViewImage = { push(Nav.ViewImage(it.uri.toString(), it.name, isNas = false)) },
+                    onPlay = { item, q -> push(Nav.Play(item.uri.toString(), item.name, queue = q.map { PlayQueueItem(it.name, localSource = it.uri.toString()) }, queueIndex = q.indexOf(item))) },
+                    onViewImage = { item, imgs -> push(Nav.ViewImage(item.uri.toString(), item.name, isNas = false, images = imgs.map { ImageRef(it.name, source = it.uri.toString()) }, index = imgs.indexOf(item))) },
                     onUpload = { items, mv -> push(Nav.NasPick(items.map { UploadSource(it.uri.toString(), it.name, it.size) }, mv)) },
                     onBack = { pop() },
                     refreshKey = listRefreshTick,
@@ -286,8 +298,8 @@ fun FilesManagerApp() {
                         store.saveFavorites(favorites)
                     },
                     onOpenDir = { push(Nav.NasBrowse(n.conn, it.path)) },
-                    onPlay = { source, title -> push(Nav.Play(source, title)) },
-                    onViewImage = { e -> push(Nav.ViewImage("", e.name, isNas = true, conn = n.conn, nasPath = e.path)) },
+                    onPlayQueue = { q, i -> push(Nav.Play("", q.getOrNull(i)?.title ?: "", conn = n.conn, queue = q, queueIndex = i)) },
+                    onViewImage = { e, imgs, i -> push(Nav.ViewImage("", e.name, isNas = true, conn = n.conn, nasPath = e.path, images = imgs, index = i)) },
                     onBack = { pop() },
                 )
                 is Nav.NasShares -> NasSharesScreen(
@@ -295,12 +307,12 @@ fun FilesManagerApp() {
                     onOpenShare = { name -> push(Nav.NasBrowse(n.conn.copy(share = name), "")) },
                     onBack = { pop() },
                 )
-                is Nav.Play -> PlayScreen(source = n.source, title = n.title, onBack = { pop() })
+                is Nav.Play -> PlayScreen(nav = n, onBack = { pop() })
                 is Nav.ViewImage -> ImageViewScreen(nav = n, onBack = { pop() })
                 is Nav.SafBrowse -> SafBrowseScreen(
                     treeUriStr = n.treeUri,
-                    onPlay = { uriStr, name -> push(Nav.Play(uriStr, name)) },
-                    onViewImage = { uriStr, name -> push(Nav.ViewImage(uriStr, name, isNas = false)) },
+                    onPlay = { q, i -> push(Nav.Play("", q.getOrNull(i)?.title ?: "", queue = q, queueIndex = i)) },
+                    onViewImage = { imgs, i -> push(Nav.ViewImage(imgs.getOrNull(i)?.source ?: "", imgs.getOrNull(i)?.title ?: "", isNas = false, images = imgs, index = i)) },
                     onUpload = { sources, mv -> push(Nav.NasPick(sources, mv)) },
                     onBack = { pop() },
                     refreshKey = listRefreshTick,
@@ -321,8 +333,8 @@ fun FilesManagerApp() {
                 is Nav.Favorites -> FavoritesScreen(
                     favorites = favorites,
                     connections = connections,
-                    onPlay = { push(Nav.Play(it.uri.toString(), it.name)) },
-                    onViewImage = { push(Nav.ViewImage(it.uri.toString(), it.name, isNas = false)) },
+                    onPlay = { item, q -> push(Nav.Play(item.uri.toString(), item.name, queue = q.map { PlayQueueItem(it.name, localSource = it.uri.toString()) }, queueIndex = q.indexOf(item))) },
+                    onViewImage = { item, imgs -> push(Nav.ViewImage(item.uri.toString(), item.name, isNas = false, images = imgs.map { ImageRef(it.name, source = it.uri.toString()) }, index = imgs.indexOf(item))) },
                     onOpenNas = { conn, path -> push(Nav.NasBrowse(conn, parentSmbPath(path))) },
                     onBack = { pop() },
                 )
@@ -569,8 +581,8 @@ private fun LocalListScreen(
     loader: suspend () -> List<LocalItem>,
     favorites: Set<String>,
     onToggleFavorite: (LocalItem) -> Unit,
-    onPlay: (LocalItem) -> Unit,
-    onViewImage: (LocalItem) -> Unit,
+    onPlay: (LocalItem, List<LocalItem>) -> Unit,
+    onViewImage: (LocalItem, List<LocalItem>) -> Unit,
     onUpload: (List<LocalItem>, Boolean) -> Unit,
     onBack: () -> Unit,
     refreshKey: Int = 0,
@@ -681,8 +693,8 @@ private fun LocalListScreen(
                         onToggleFavorite = { onToggleFavorite(item) },
                         onClick = {
                             when {
-                                item.isVideo || item.isAudio -> onPlay(item)
-                                item.isImage -> onViewImage(item)
+                                item.isVideo || item.isAudio -> onPlay(item, sorted.filter { it.isVideo || it.isAudio })
+                                item.isImage -> onViewImage(item, sorted.filter { it.isImage })
                                 else -> {
                                     try {
                                         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -819,7 +831,32 @@ private fun LocalItemRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlayScreen(source: String, title: String, onBack: () -> Unit) {
+private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
+    val queue = nav.queue
+    var idx by remember(nav) { mutableStateOf(if (queue.isEmpty()) 0 else nav.queueIndex.coerceIn(0, queue.size - 1)) }
+    val title = queue.getOrNull(idx)?.title ?: nav.title
+    var resolved by remember(nav) { mutableStateOf<String?>(null) }
+    var resolveFailed by remember(nav) { mutableStateOf(false) }
+    LaunchedEffect(idx, nav) {
+        resolved = null; resolveFailed = false
+        val item = queue.getOrNull(idx)
+        val conn = nav.conn
+        val ls = item?.localSource
+        val np = item?.nasPath
+        resolved = when {
+            queue.isEmpty() -> nav.source
+            ls != null -> ls
+            conn != null && np != null -> {
+                val u = withContext(Dispatchers.IO) {
+                    runCatching { SmbRepo.streamUrl(conn, NasEntry(item?.title ?: "", np, false, 0)) }.getOrNull()
+                }
+                if (u == null) resolveFailed = true
+                u
+            }
+            else -> null
+        }
+        if (resolved == null && queue.isNotEmpty()) resolveFailed = true
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -838,7 +875,20 @@ private fun PlayScreen(source: String, title: String, onBack: () -> Unit) {
         containerColor = Color.Black,
     ) { pad ->
         Box(modifier = Modifier.padding(pad).fillMaxSize()) {
-            PlayerScreen(source = source, title = title)
+            val src = resolved
+            when {
+                src != null -> key(idx) {
+                    PlayerScreen(
+                        source = src, title = title,
+                        hasPrev = idx > 0, hasNext = idx < queue.size - 1,
+                        queueLabel = if (queue.size > 1) "${idx + 1} / ${queue.size}" else "",
+                        onPrev = { if (idx > 0) idx-- },
+                        onNext = { if (idx < queue.size - 1) idx++ },
+                    )
+                }
+                resolveFailed -> Text("読み込めませんでした", color = Color.White, modifier = Modifier.align(Alignment.Center))
+                else -> CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center))
+            }
         }
     }
 }
@@ -846,17 +896,24 @@ private fun PlayScreen(source: String, title: String, onBack: () -> Unit) {
 @Composable
 private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
     val context = LocalContext.current
+    val images = remember(nav) {
+        if (nav.images.isNotEmpty()) nav.images
+        else listOf(ImageRef(nav.title, nav.source, nav.nasPath))
+    }
+    var idx by remember(nav) { mutableStateOf(nav.index.coerceIn(0, maxOf(images.size - 1, 0))) }
     var bmp by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(nav) {
+    LaunchedEffect(idx, nav) {
+        bmp = null; error = null
+        val cur = images[idx]
         withContext(Dispatchers.IO) {
             try {
                 val bytes: ByteArray = if (nav.isNas && nav.conn != null) {
                     val baos = ByteArrayOutputStream()
-                    SmbRepo.copyTo(nav.conn, nav.nasPath, baos)
+                    SmbRepo.copyTo(nav.conn, cur.nasPath, baos)
                     baos.toByteArray()
                 } else {
-                    context.contentResolver.openInputStream(Uri.parse(nav.source))?.readBytes()
+                    context.contentResolver.openInputStream(Uri.parse(cur.source))?.readBytes()
                         ?: throw IllegalStateException("開けません")
                 }
                 bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
@@ -867,17 +924,40 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
         }
     }
     Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        SimpleBar(nav.title, onBack)
+        SimpleBar(images[idx].title, onBack)
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             when {
                 bmp != null -> Image(
                     bitmap = bmp!!.asImageBitmap(),
-                    contentDescription = nav.title,
+                    contentDescription = images[idx].title,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
                 )
                 error != null -> Text(error!!, color = Color.White)
                 else -> CircularProgressIndicator(color = Color.White)
+            }
+            if (images.size > 1) {
+                // 横スワイプで前後の画像へ
+                Box(
+                    modifier = Modifier.fillMaxSize().pointerInput(idx) {
+                        var totalDx = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalDx = 0f },
+                            onHorizontalDrag = { _, dx -> totalDx += dx },
+                            onDragEnd = {
+                                if (totalDx < -70f && idx < images.size - 1) idx++
+                                else if (totalDx > 70f && idx > 0) idx--
+                            },
+                        )
+                    },
+                )
+                Text(
+                    "${idx + 1} / ${images.size}",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                        .background(Color(0x66000000), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
         }
     }
@@ -1306,8 +1386,8 @@ private fun NasBrowseScreen(
     favorites: Set<String>,
     onToggleFavorite: (NasEntry) -> Unit,
     onOpenDir: (NasEntry) -> Unit,
-    onPlay: (String, String) -> Unit,
-    onViewImage: (NasEntry) -> Unit,
+    onPlayQueue: (List<PlayQueueItem>, Int) -> Unit,
+    onViewImage: (NasEntry, List<ImageRef>, Int) -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1466,17 +1546,20 @@ private fun NasBrowseScreen(
                             when {
                                 e.isDir -> onOpenDir(e)
                                 e.isVideo || e.isAudio -> {
-                                    busyMsg = "再生を準備中…"
-                                    scope.launch {
-                                        val r = withContext(Dispatchers.IO) {
-                                            runCatching { SmbRepo.streamUrl(conn, e) }
-                                        }
-                                        busyMsg = null
-                                        r.onSuccess { url -> onPlay(url, e.name) }
-                                            .onFailure { Toast.makeText(context, "再生できません: ${it.message}", Toast.LENGTH_LONG).show() }
-                                    }
+                                    val media = (entries ?: emptyList()).filter { it.isVideo || it.isAudio }
+                                    onPlayQueue(
+                                        media.map { PlayQueueItem(it.name, nasPath = it.path) },
+                                        media.indexOf(e),
+                                    )
                                 }
-                                e.isImage -> onViewImage(e)
+                                e.isImage -> {
+                                    val imgs = (entries ?: emptyList()).filter { it.isImage }
+                                    onViewImage(
+                                        e,
+                                        imgs.map { ImageRef(it.name, nasPath = it.path) },
+                                        imgs.indexOf(e),
+                                    )
+                                }
                                 else -> Toast.makeText(context, "この形式はメニューからダウンロードして開いてね", Toast.LENGTH_SHORT).show()
                             }
                                     }
@@ -1594,8 +1677,8 @@ private fun NasBrowseScreen(
 @OptIn(ExperimentalFoundationApi::class)
 private fun SafBrowseScreen(
     treeUriStr: String,
-    onPlay: (String, String) -> Unit,
-    onViewImage: (String, String) -> Unit,
+    onPlay: (List<PlayQueueItem>, Int) -> Unit,
+    onViewImage: (List<ImageRef>, Int) -> Unit,
     onUpload: (List<UploadSource>, Boolean) -> Unit,
     onBack: () -> Unit,
     refreshKey: Int = 0,
@@ -1699,8 +1782,14 @@ private fun SafBrowseScreen(
                                     } else {
                             when {
                                 f.isDirectory -> { stack = stack + f; load(f) }
-                                mime.startsWith("video/") || mime.startsWith("audio/") -> onPlay(f.uri.toString(), f.name ?: "")
-                                mime.startsWith("image/") -> onViewImage(f.uri.toString(), f.name ?: "")
+                                mime.startsWith("video/") || mime.startsWith("audio/") -> {
+                                    val media = files.filter { val m = it.type ?: ""; m.startsWith("video/") || m.startsWith("audio/") }
+                                    onPlay(media.map { PlayQueueItem(it.name ?: "", localSource = it.uri.toString()) }, media.indexOf(f))
+                                }
+                                mime.startsWith("image/") -> {
+                                    val imgs = files.filter { (it.type ?: "").startsWith("image/") }
+                                    onViewImage(imgs.map { ImageRef(it.name ?: "", source = it.uri.toString()) }, imgs.indexOf(f))
+                                }
                                 else -> {
                                     try {
                                         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -1750,8 +1839,8 @@ private fun SafBrowseScreen(
 private fun FavoritesScreen(
     favorites: Set<String>,
     connections: List<NasConnection>,
-    onPlay: (LocalItem) -> Unit,
-    onViewImage: (LocalItem) -> Unit,
+    onPlay: (LocalItem, List<LocalItem>) -> Unit,
+    onViewImage: (LocalItem, List<LocalItem>) -> Unit,
     onOpenNas: (NasConnection, String) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -1785,8 +1874,8 @@ private fun FavoritesScreen(
                         onToggleFavorite = {},
                         onClick = {
                             when {
-                                item.isVideo || item.isAudio -> onPlay(item)
-                                item.isImage -> onViewImage(item)
+                                item.isVideo || item.isAudio -> onPlay(item, localItems.filter { it.isVideo || it.isAudio })
+                                item.isImage -> onViewImage(item, localItems.filter { it.isImage })
                             }
                         },
                     )
