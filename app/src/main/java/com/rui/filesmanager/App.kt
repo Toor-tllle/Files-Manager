@@ -45,10 +45,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -88,6 +90,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -114,6 +117,7 @@ import java.util.UUID
 
 sealed class Nav {
     data object Home : Nav()
+    data object DeviceFiles : Nav()
     data class LocalList(val category: Category) : Nav()
     data class SearchList(val query: String) : Nav()
     data object NasHome : Nav()
@@ -162,6 +166,20 @@ fun FilesManagerApp() {
 
     fun push(n: Nav) { navStack.add(n) }
     fun pop() { if (navStack.size > 1) navStack.removeAt(navStack.size - 1) }
+    var currentTab by remember { mutableStateOf(0) }
+    var homeSearchTick by remember { mutableStateOf(0) }
+    fun switchTab(t: Int) {
+        currentTab = t
+        val root: Nav = when (t) {
+            1 -> Nav.DeviceFiles
+            2 -> Nav.NasHome
+            3 -> Nav.Settings
+            else -> Nav.Home
+        }
+        navStack.clear()
+        navStack.add(root)
+    }
+    fun backOrMain() { if (navStack.size > 1) pop() else switchTab(0) }
     openSettingsCallback = { if (nav !is Nav.Settings) push(Nav.Settings) }
 
     var startupUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -242,7 +260,9 @@ fun FilesManagerApp() {
                     },
                 )
             }
-            when (val n = nav) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f)) {
+                    when (val n = nav) {
                 is Nav.Home -> HomeScreen(
                     favoritesCount = favorites.size,
                     folderUris = folderUris,
@@ -250,6 +270,16 @@ fun FilesManagerApp() {
                     onSearch = { push(Nav.SearchList(it)) },
                     onNas = { push(Nav.NasHome) },
                     onFavorites = { push(Nav.Favorites) },
+                    onFolderAdded = { uriStr ->
+                        folderUris = folderUris + uriStr
+                        store.saveFolderUris(folderUris)
+                    },
+                    onOpenFolder = { push(Nav.SafBrowse(it)) },
+                    searchSignal = homeSearchTick,
+                )
+                is Nav.DeviceFiles -> DeviceFilesScreen(
+                    folderUris = folderUris,
+                    onCategory = { push(Nav.LocalList(it)) },
                     onFolderAdded = { uriStr ->
                         folderUris = folderUris + uriStr
                         store.saveFolderUris(folderUris)
@@ -295,7 +325,7 @@ fun FilesManagerApp() {
                         store.remove(c.id)
                     },
                     onOpen = { if (it.share.isBlank()) push(Nav.NasShares(it)) else push(Nav.NasBrowse(it, "")) },
-                    onBack = { pop() },
+                    onBack = { backOrMain() },
                 )
                 is Nav.NasEdit -> NasEditScreen(
                     initial = n.conn,
@@ -346,7 +376,7 @@ fun FilesManagerApp() {
                     store = store,
                     connectionsCount = connections.size,
                     onOpenNas = { push(Nav.NasHome) },
-                    onBack = { pop() },
+                    onBack = { backOrMain() },
                 )
                 is Nav.Favorites -> FavoritesScreen(
                     favorites = favorites,
@@ -356,6 +386,18 @@ fun FilesManagerApp() {
                     onOpenNas = { conn, path -> push(Nav.NasBrowse(conn, parentSmbPath(path))) },
                     onBack = { pop() },
                 )
+                    }
+                }
+                if (navStack.size == 1) {
+                    BottomTabBar(
+                        currentTab = currentTab,
+                        onSelect = { switchTab(it) },
+                        onSearch = {
+                            if (currentTab != 0) switchTab(0)
+                            homeSearchTick++
+                        },
+                    )
+                }
             }
         }
     }
@@ -408,6 +450,205 @@ private fun SimpleBar(title: String, onBack: () -> Unit) {
     )
 }
 
+
+/** 画面下の浮動タブバー（メイン／本体ファイル／NASファイル／設定＋丸い検索ボタン）。 */
+@Composable
+private fun BottomTabBar(currentTab: Int, onSelect: (Int) -> Unit, onSearch: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f)
+                .shadow(10.dp, RoundedCornerShape(40.dp))
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(40.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TabItem(selected = currentTab == 0, icon = Icons.Filled.Home, label = "メイン") { onSelect(0) }
+            TabItem(selected = currentTab == 1, icon = AppIcons.Folder, label = "本体ファイル") { onSelect(1) }
+            TabItem(selected = currentTab == 2, icon = AppIcons.Cloud, label = "NASファイル") { onSelect(2) }
+            TabItem(selected = currentTab == 3, icon = Icons.Filled.Settings, label = "設定") { onSelect(3) }
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(
+            modifier = Modifier.size(52.dp)
+                .shadow(10.dp, CircleShape)
+                .background(MaterialTheme.colorScheme.surface, CircleShape)
+                .clickable { onSearch() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = "検索", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun TabItem(selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    if (selected) {
+        Row(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(24.dp))
+                .clickable { onClick() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+        }
+    } else {
+        IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+            Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** 本体ファイルタブ：容量・カテゴリ・登録フォルダ。 */
+@Composable
+private fun DeviceFilesScreen(
+    folderUris: List<String>,
+    onCategory: (Category) -> Unit,
+    onFolderAdded: (String) -> Unit,
+    onOpenFolder: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val treeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            } catch (e: Exception) { /* 読み取りだけでも可 */ }
+            onFolderAdded(uri.toString())
+            onOpenFolder(uri.toString())
+        }
+    }
+    val stat = remember {
+        try {
+            val fs = StatFs(Environment.getDataDirectory().path)
+            fs.totalBytes to fs.availableBytes
+        } catch (e: Exception) { 0L to 0L }
+    }
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("本体ファイル", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("この端末の中のファイル", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            if (stat.first > 0) {
+                item {
+                    Text("内部ストレージ", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    val usedRatio = 1f - stat.second.toFloat() / stat.first.toFloat()
+                    LinearProgressIndicator(progress = { usedRatio }, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "空き ${fmtSize(stat.second)} / ${fmtSize(stat.first)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+            item { Text("カテゴリ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            item { Spacer(Modifier.height(8.dp)) }
+            val cats = listOf(
+                Triple(Category.DOWNLOAD, AppIcons.Download, "ダウンロード"),
+                Triple(Category.IMAGE, AppIcons.Image, "画像"),
+                Triple(Category.VIDEO, AppIcons.Movie, "動画"),
+                Triple(Category.AUDIO, AppIcons.MusicNote, "音声"),
+                Triple(Category.DOCUMENT, AppIcons.Description, "ドキュメント"),
+                Triple(Category.APP, AppIcons.Android, "アプリ"),
+                Triple(Category.ARCHIVE, AppIcons.Archive, "圧縮ファイル"),
+                Triple(Category.RECENT, AppIcons.History, "最近のファイル"),
+            )
+            items(cats.chunked(2)) { pair ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for ((cat, icon, label) in pair) {
+                        Card(
+                            modifier = Modifier.weight(1f).clickable { onCategory(cat) },
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(10.dp))
+                                Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+            item { Spacer(Modifier.height(4.dp)) }
+            item { Text("フォルダ", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+            item { Spacer(Modifier.height(8.dp)) }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { treeLauncher.launch(null) },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(AppIcons.FolderOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("フォルダを開く", fontWeight = FontWeight.Bold)
+                            Text(
+                                "端末内のフォルダを選んで開く（登録されます）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (folderUris.isNotEmpty()) {
+                item { Spacer(Modifier.height(12.dp)) }
+                item { Text("登録済みフォルダ", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold) }
+                items(folderUris) { uriStr ->
+                    val name = remember(uriStr) {
+                        try {
+                            DocumentFile.fromTreeUri(context, Uri.parse(uriStr))?.name ?: uriStr
+                        } catch (e: Exception) { uriStr }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenFolder(uriStr) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text(name, modifier = Modifier.weight(1f), maxLines = 1)
+                        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
 @Composable
 private fun HomeScreen(
     favoritesCount: Int,
@@ -418,9 +659,11 @@ private fun HomeScreen(
     onFavorites: () -> Unit,
     onFolderAdded: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
+    searchSignal: Int = 0,
 ) {
     val context = LocalContext.current
     var searchOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(searchSignal) { if (searchSignal > 0) searchOpen = true }
     var query by remember { mutableStateOf("") }
     val treeLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -455,9 +698,6 @@ private fun HomeScreen(
             }
             IconButton(onClick = { searchOpen = !searchOpen }) {
                 Icon(Icons.Filled.Search, contentDescription = "検索", tint = MaterialTheme.colorScheme.primary)
-            }
-            IconButton(onClick = { openSettingsCallback?.invoke() }) {
-                Icon(Icons.Filled.Settings, contentDescription = "設定", tint = MaterialTheme.colorScheme.primary)
             }
         }
 
