@@ -1,6 +1,6 @@
 {
-  "versionCode": 19,
-  "versionName": "0.2.8",
+  "versionCode": 20,
+  "versionName": "0.2.9",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.8：画像表示中に左右へスワイプすると前後の画像に切り替わるようになりました（下に 3/12 のような位置表示）。動画・音声は同じフォルダ/カテゴリ内を連続再生でき、上下スワイプ（上=次、下=前）か「前へ/次へ」ボタンで切り替わります。横スワイプのシークは今まで通りです。"
+  "notes": "v0.2.9：設定の「インストールする」ボタンは、更新をダウンロードしたときだけ表示するようにしました（更新済みの古いダウンロード記録が残っていて常に出てしまう問題の修正）。"
 }

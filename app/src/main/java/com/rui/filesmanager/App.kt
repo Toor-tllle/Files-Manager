@@ -2157,8 +2157,19 @@ private fun SettingsScreen(
     var checkMsg by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
-    var downloadId by remember { mutableStateOf(Updater.savedDownloadId(store)) }
+    // 「インストールする」は更新のときだけ出す：保存済みDLは対象が今の版数より新しい場合だけ復元し、
+    // 既に更新済み（対象<=現在の版数）の記録は掃除して二度と出さない。
+    var downloadId by remember {
+        mutableStateOf(
+            if (Updater.savedDownloadCode(store) > curCode) Updater.savedDownloadId(store) else -1L
+        )
+    }
     var dlProgress by remember { mutableStateOf<Updater.Progress?>(null) }
+    LaunchedEffect(Unit) {
+        if (Updater.savedDownloadId(store) > 0 && Updater.savedDownloadCode(store) <= curCode) {
+            Updater.clearSavedDownload(store)
+        }
+    }
 
     // ダウンロード中は進捗をポーリング（ステータスバー通知と併せてアプリ内でも表示）
     LaunchedEffect(downloadId) {

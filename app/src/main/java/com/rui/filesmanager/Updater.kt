@@ -23,6 +23,7 @@ object Updater {
     private const val PREF_URL = "update_version_url"
     private const val PREF_AUTO = "update_auto_check"
     private const val PREF_DL_ID = "update_download_id"
+    private const val PREF_DL_CODE = "update_download_code"
 
     fun versionUrl(store: NasStore): String = store.getString(PREF_URL, DEFAULT_VERSION_URL)
     fun setVersionUrl(store: NasStore, url: String) = store.putString(PREF_URL, url)
@@ -84,6 +85,7 @@ object Updater {
         }
         val id = dm.enqueue(req)
         store.putString(PREF_DL_ID, id.toString())
+        store.putString(PREF_DL_CODE, info.versionCode.toString())
         return id
     }
 
@@ -103,6 +105,14 @@ object Updater {
     }
 
     fun savedDownloadId(store: NasStore): Long = store.getString(PREF_DL_ID, "").toLongOrNull() ?: -1L
+
+    /** 保存済みダウンロードの対象versionCode（旧版で保存された記録には無いので0）。 */
+    fun savedDownloadCode(store: NasStore): Int = store.getString(PREF_DL_CODE, "").toIntOrNull() ?: 0
+
+    fun clearSavedDownload(store: NasStore) {
+        store.putString(PREF_DL_ID, "")
+        store.putString(PREF_DL_CODE, "")
+    }
 
     fun install(context: Context, id: Long): Boolean {
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
