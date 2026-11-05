@@ -1,7 +1,11 @@
 package com.rui.filesmanager
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -68,6 +72,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -83,7 +88,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -344,6 +354,26 @@ fun FilesManagerApp() {
                 )
             }
         }
+    }
+}
+
+private fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/** 動画再生・画像表示のあいだ、ステータスバーとナビバーを隠す（端スワイプで一時表示）。画面を離れると戻る。 */
+@Composable
+private fun ImmersiveSystemBars() {
+    val context = LocalContext.current
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = context.findActivity()?.window
+        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
     }
 }
 
@@ -836,6 +866,8 @@ private fun LocalItemRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
+    ImmersiveSystemBars()
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val queue = nav.queue
     var idx by remember(nav) { mutableStateOf(if (queue.isEmpty()) 0 else nav.queueIndex.coerceIn(0, queue.size - 1)) }
     val title = queue.getOrNull(idx)?.title ?: nav.title
@@ -863,7 +895,7 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
     }
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (!landscape) TopAppBar(
                 title = { Text(title, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -886,6 +918,7 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
                         source = src, title = title,
                         hasPrev = idx > 0, hasNext = idx < queue.size - 1,
                         queueLabel = if (queue.size > 1) "${idx + 1} / ${queue.size}" else "",
+                        landscape = landscape,
                         onPrev = { if (idx > 0) idx-- },
                         onNext = { if (idx < queue.size - 1) idx++ },
                     )
@@ -897,8 +930,11 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
+    ImmersiveSystemBars()
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val context = LocalContext.current
     val images = remember(nav) {
         if (nav.images.isNotEmpty()) nav.images
@@ -928,7 +964,20 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
         }
     }
     Column(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        SimpleBar(images[idx].title, onBack)
+        if (!landscape) {
+            TopAppBar(
+                title = { Text(images[idx].title, maxLines = 1) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Black,
+                    titleContentColor = Color.White,
+                ),
+            )
+        }
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             when {
                 bmp != null -> Image(

@@ -1,6 +1,6 @@
 {
-  "versionCode": 21,
-  "versionName": "0.2.10",
+  "versionCode": 22,
+  "versionName": "0.2.11",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.10：更新が済んだ更新APK（Downloadsの FilesManager-update.apk）は、次回起動時に自動で削除するようにしました。まだインストールしていない新しい更新のAPKは消しません。あわせて「インストールする」ボタンは更新時のみの表示です（v0.2.9）。"
+  "notes": "v0.2.11：動画再生中と画像表示中はステータスバー/ナビバーを隠して映像に集中できるようにしました（画面端のスワイプで一時表示）。画像のバーは黒に統一。横画面では上のバーも消えて、動画は自動で「画面いっぱい」表示になります（縦に戻すと全体表示）。"
 }

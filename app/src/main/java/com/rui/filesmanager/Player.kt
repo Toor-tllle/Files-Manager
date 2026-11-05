@@ -68,6 +68,7 @@ fun PlayerScreen(
     hasPrev: Boolean = false,
     hasNext: Boolean = false,
     queueLabel: String = "",
+    landscape: Boolean = false,
     onPrev: () -> Unit = {},
     onNext: () -> Unit = {},
 ) {
@@ -85,13 +86,18 @@ fun PlayerScreen(
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableStateOf(0f) }
     var videoAspect by remember { mutableStateOf(16f / 9f) }
-    var fillMode by remember { mutableStateOf(false) } // false=全体, true=画面いっぱい
+    var fillMode by remember { mutableStateOf(landscape) } // false=全体, true=画面いっぱい
     var zoom by remember { mutableStateOf(1f) }
     var swipeSeeking by remember { mutableStateOf(false) }
     var swipeDeltaMs by remember { mutableStateOf(0L) }
     var swipeStartPos by remember { mutableStateOf(0L) }
     var panX by remember { mutableStateOf(0f) }
     var panY by remember { mutableStateOf(0f) }
+    // 回転に追従：横画面では「画面いっぱい」、縦画面では「全体表示」を既定にする
+    LaunchedEffect(landscape) {
+        fillMode = landscape
+        zoom = 1f; panX = 0f; panY = 0f
+    }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
