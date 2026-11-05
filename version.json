@@ -1,6 +1,6 @@
 {
-  "versionCode": 11,
-  "versionName": "0.2.0",
+  "versionCode": 12,
+  "versionName": "0.2.1",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.0：NASの自動検索（mDNS＋ネットワーク走査）を追加。検索→ログイン→共有フォルダ自動検出の流れに変更し、エラー理由も日本語で表示します。"
+  "notes": "v0.2.1：動画再生中に配信側が切断されると落ちる問題を修正。共有フォルダを指定しなくても保存・接続できるようにし、開くときに共有一覧から選べるようにしました。"
 }

@@ -96,6 +96,7 @@ sealed class Nav {
     data object NasHome : Nav()
     data class NasEdit(val conn: NasConnection?) : Nav()
     data class NasBrowse(val conn: NasConnection, val path: String) : Nav()
+    data class NasShares(val conn: NasConnection) : Nav()
     data class Play(val source: String, val title: String) : Nav()
     data class ViewImage(val source: String, val title: String, val isNas: Boolean, val conn: NasConnection? = null, val nasPath: String = "") : Nav()
     data class SafBrowse(val treeUri: String) : Nav()
@@ -251,7 +252,7 @@ fun FilesManagerApp() {
                         connections = connections.filter { it.id != c.id }
                         store.remove(c.id)
                     },
-                    onOpen = { push(Nav.NasBrowse(it, "")) },
+                    onOpen = { if (it.share.isBlank()) push(Nav.NasShares(it)) else push(Nav.NasBrowse(it, "")) },
                     onBack = { pop() },
                 )
                 is Nav.NasEdit -> NasEditScreen(
@@ -275,6 +276,11 @@ fun FilesManagerApp() {
                     onOpenDir = { push(Nav.NasBrowse(n.conn, it.path)) },
                     onPlay = { source, title -> push(Nav.Play(source, title)) },
                     onViewImage = { e -> push(Nav.ViewImage("", e.name, isNas = true, conn = n.conn, nasPath = e.path)) },
+                    onBack = { pop() },
+                )
+                is Nav.NasShares -> NasSharesScreen(
+                    conn = n.conn,
+                    onOpenShare = { name -> push(Nav.NasBrowse(n.conn.copy(share = name), "")) },
                     onBack = { pop() },
                 )
                 is Nav.Play -> PlayScreen(source = n.source, title = n.title, onBack = { pop() })
@@ -828,7 +834,7 @@ private fun NasHomeScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(c.label.ifBlank { c.host }, fontWeight = FontWeight.Bold)
                             Text(
-                                "smb://${c.host}/${c.share} ・ ${c.username}",
+                                if (c.share.isBlank()) "smb://${c.host} ・ ${c.username}（共有は開くときに選択）" else "smb://${c.host}/${c.share} ・ ${c.username}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -1078,7 +1084,7 @@ private fun NasEditScreen(
                 OutlinedTextField(share, { share = it }, label = { Text("共有フォルダ名（例：share、public）") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "アカウントはこの端末の中だけに、暗号化して保存します。次回からは入力なしで自動ログインします。",
+                    "共有フォルダ名は空のままでも保存できます（NASを開くときに一覧から選べます）。アカウントはこの端末の中だけに、暗号化して保存します。次回からは入力なしで自動ログインします。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1086,8 +1092,8 @@ private fun NasEditScreen(
                 Button(
                     onClick = {
                         val c = build()
-                        if (c.host.isBlank() || c.share.isBlank()) {
-                            Toast.makeText(context, "ホストと共有フォルダ名は必須です", Toast.LENGTH_SHORT).show()
+                        if (c.host.isBlank()) {
+                            Toast.makeText(context, "ホストは必須です", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
                         onSave(c.copy(label = c.label.ifBlank { c.host }))
@@ -1095,6 +1101,101 @@ private fun NasEditScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("保存") }
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NasSharesScreen(
+    conn: NasConnection,
+    onOpenShare: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var shares by remember(conn.id) { mutableStateOf<List<String>?>(null) }
+    var error by remember(conn.id) { mutableStateOf<String?>(null) }
+    var manual by remember { mutableStateOf("") }
+
+    fun reload() {
+        shares = null; error = null
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    SmbRepo.loginTest(conn)
+                    SmbRepo.probeShares(conn)
+                }
+            }
+            r.onSuccess { shares = it }
+                .onFailure { error = SmbRepo.describeError(it) }
+        }
+    }
+    LaunchedEffect(conn.id) { reload() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        SimpleBar(conn.label.ifBlank { conn.host }, onBack)
+        Text(
+            "smb://${conn.host} ・ 共有フォルダを選んでね",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        when {
+            error != null -> Column(modifier = Modifier.padding(16.dp)) {
+                Text(error!!, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = { reload() }) { Text("再接続") }
+            }
+            shares == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(8.dp))
+                    Text("NASにログイン中…", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+                if (shares!!.isEmpty()) {
+                    item {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            "よくある名前の共有フォルダは見つかりませんでした。下に共有フォルダ名を入力して開いてね。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(shares!!, key = { it }) { name ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenShare(name) },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(10.dp))
+                            Text(name, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(manual, { manual = it }, label = { Text("共有フォルダ名を直接入力") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            val name = manual.trim()
+                            if (name.isBlank()) {
+                                Toast.makeText(context, "共有フォルダ名を入力してね", Toast.LENGTH_SHORT).show()
+                            } else {
+                                onOpenShare(name)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("この共有フォルダを開く") }
+                    Spacer(Modifier.height(24.dp))
+                }
             }
         }
     }

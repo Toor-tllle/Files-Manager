@@ -284,6 +284,16 @@ object SmbStreamServer {
     }
 
     private fun handle(sock: Socket) {
+        try {
+            handleInner(sock)
+        } catch (e: Exception) {
+            // 再生側が先に切断するのは通常動作（シーク・停止・画面を閉じる）。
+            // 配信スレッドで例外を漏らすとアプリ全体が落ちるので、ここで必ず握りつぶす。
+            runCatching { sock.close() }
+        }
+    }
+
+    private fun handleInner(sock: Socket) {
         sock.use { s ->
             val reader = s.getInputStream().bufferedReader()
             val requestLine = reader.readLine() ?: return
