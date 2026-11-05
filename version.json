@@ -1,6 +1,6 @@
 {
-  "versionCode": 17,
-  "versionName": "0.2.6",
+  "versionCode": 18,
+  "versionName": "0.2.7",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.6：動画再生中に画面を左右にスワイプすると時間を戻したり先に進めたりできるようになりました（ズーム中は無効）。ホーム左上の三本線アイコンを削除。設定画面にGitHubのURLを表示しないようにしました。"
+  "notes": "v0.2.7：ファイルの長押しで複数選択モード（一括削除に対応。NAS側は一括ダウンロードも）。本体のファイルを選んで「NASへコピー／NASへ移動」で、送信先のNAS・共有・フォルダを選んでアップロードできるようになりました（移動は送信後に本体側を削除）。"
 }

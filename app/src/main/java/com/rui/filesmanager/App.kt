@@ -16,10 +16,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,11 +40,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -101,6 +106,7 @@ sealed class Nav {
     data class Play(val source: String, val title: String) : Nav()
     data class ViewImage(val source: String, val title: String, val isNas: Boolean, val conn: NasConnection? = null, val nasPath: String = "") : Nav()
     data class SafBrowse(val treeUri: String) : Nav()
+    data class NasPick(val sources: List<UploadSource>, val move: Boolean) : Nav()
     data object Favorites : Nav()
     data object Settings : Nav()
 }
@@ -125,6 +131,7 @@ fun FilesManagerApp() {
     val nav = navStack.last()
     var favorites by remember { mutableStateOf(store.loadFavorites()) }
     var connections by remember { mutableStateOf(store.loadConnections()) }
+    var listRefreshTick by remember { mutableStateOf(0) }
     var folderUris by remember { mutableStateOf(store.loadFolderUris()) }
 
     fun push(n: Nav) { navStack.add(n) }
@@ -230,7 +237,9 @@ fun FilesManagerApp() {
                     },
                     onPlay = { push(Nav.Play(it.uri.toString(), it.name)) },
                     onViewImage = { push(Nav.ViewImage(it.uri.toString(), it.name, isNas = false)) },
+                    onUpload = { items, mv -> push(Nav.NasPick(items.map { UploadSource(it.uri.toString(), it.name, it.size) }, mv)) },
                     onBack = { pop() },
+                    refreshKey = listRefreshTick,
                 )
                 is Nav.SearchList -> LocalListScreen(
                     title = "検索: ${n.query}",
@@ -243,7 +252,9 @@ fun FilesManagerApp() {
                     },
                     onPlay = { push(Nav.Play(it.uri.toString(), it.name)) },
                     onViewImage = { push(Nav.ViewImage(it.uri.toString(), it.name, isNas = false)) },
+                    onUpload = { items, mv -> push(Nav.NasPick(items.map { UploadSource(it.uri.toString(), it.name, it.size) }, mv)) },
                     onBack = { pop() },
+                    refreshKey = listRefreshTick,
                 )
                 is Nav.NasHome -> NasHomeScreen(
                     connections = connections,
@@ -290,6 +301,15 @@ fun FilesManagerApp() {
                     treeUriStr = n.treeUri,
                     onPlay = { uriStr, name -> push(Nav.Play(uriStr, name)) },
                     onViewImage = { uriStr, name -> push(Nav.ViewImage(uriStr, name, isNas = false)) },
+                    onUpload = { sources, mv -> push(Nav.NasPick(sources, mv)) },
+                    onBack = { pop() },
+                    refreshKey = listRefreshTick,
+                )
+                is Nav.NasPick -> NasPickScreen(
+                    connections = connections,
+                    sources = n.sources,
+                    move = n.move,
+                    onDone = { listRefreshTick++; pop() },
                     onBack = { pop() },
                 )
                 is Nav.Settings -> SettingsScreen(
@@ -543,6 +563,7 @@ private fun HomeScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun LocalListScreen(
     title: String,
     loader: suspend () -> List<LocalItem>,
@@ -550,13 +571,20 @@ private fun LocalListScreen(
     onToggleFavorite: (LocalItem) -> Unit,
     onPlay: (LocalItem) -> Unit,
     onViewImage: (LocalItem) -> Unit,
+    onUpload: (List<LocalItem>, Boolean) -> Unit,
     onBack: () -> Unit,
+    refreshKey: Int = 0,
 ) {
     val context = LocalContext.current
     var itemsState by remember { mutableStateOf<List<LocalItem>?>(null) }
     var sortMode by remember { mutableStateOf(0) } // 0=新しい順 1=名前 2=サイズ
     var loadError by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
+    val scope = rememberCoroutineScope()
+    var reloadTick by remember { mutableStateOf(0) }
+    var selectMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    LaunchedEffect(reloadTick, refreshKey) {
         val r = withContext(Dispatchers.IO) { runCatching { loader() } }
         r.onSuccess { itemsState = it }.onFailure { loadError = it.message; itemsState = emptyList() }
     }
@@ -569,7 +597,48 @@ private fun LocalListScreen(
         }
     }
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(title, onBack)
+        if (selectMode) {
+            SelectionBar(count = selected.size, onClose = { selectMode = false; selected = emptySet() }) {
+                TextButton(onClick = { selected = sorted.map { it.uri.toString() }.toSet() }) { Text("全選択") }
+                TextButton(onClick = {
+                    val sel = sorted.filter { it.uri.toString() in selected }
+                    if (sel.isNotEmpty()) onUpload(sel, false)
+                }) { Text("NASへコピー") }
+                TextButton(onClick = {
+                    val sel = sorted.filter { it.uri.toString() in selected }
+                    if (sel.isNotEmpty()) onUpload(sel, true)
+                }) { Text("NASへ移動") }
+                TextButton(onClick = { if (selected.isNotEmpty()) confirmDelete = true }) { Text("削除") }
+            }
+        } else {
+            SimpleBar(title, onBack)
+        }
+        BackHandler(enabled = selectMode) { selectMode = false; selected = emptySet() }
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("削除の確認") },
+                text = { Text("${selected.size}件のファイルを削除します。元に戻せません。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        val targets = sorted.filter { it.uri.toString() in selected }
+                        scope.launch {
+                            var ok = 0; var ng = 0
+                            withContext(Dispatchers.IO) {
+                                for (t in targets) {
+                                    if (runCatching { context.contentResolver.delete(t.uri, null, null) > 0 }.getOrDefault(false)) ok++ else ng++
+                                }
+                            }
+                            Toast.makeText(context, if (ng == 0) "${ok}件削除しました" else "${ok}件削除、${ng}件失敗しました", Toast.LENGTH_SHORT).show()
+                            selectMode = false; selected = emptySet()
+                            reloadTick++
+                        }
+                    }) { Text("削除する") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("キャンセル") } },
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -599,6 +668,15 @@ private fun LocalListScreen(
                 items(sorted, key = { it.uri.toString() + it.id }) { item ->
                     LocalItemRow(
                         item = item,
+                        selected = item.uri.toString() in selected,
+                        selectMode = selectMode,
+                        onToggleSelect = {
+                            val k = item.uri.toString()
+                            selected = if (k in selected) selected - k else selected + k
+                        },
+                        onLongClick = {
+                            if (!selectMode) { selectMode = true; selected = setOf(item.uri.toString()) }
+                        },
                         isFav = ("L|${item.uri}") in favorites,
                         onToggleFavorite = { onToggleFavorite(item) },
                         onClick = {
@@ -626,8 +704,13 @@ private fun LocalListScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun LocalItemRow(
     item: LocalItem,
+    selected: Boolean,
+    selectMode: Boolean,
+    onToggleSelect: () -> Unit,
+    onLongClick: () -> Unit,
     isFav: Boolean,
     onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
@@ -642,9 +725,19 @@ private fun LocalItemRow(
         if (item.modified > 0) SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.JAPAN).format(Date(item.modified)) else ""
     }
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+            .combinedClickable(
+                onClick = { if (selectMode) onToggleSelect() else onClick() },
+                onLongClick = { onLongClick() },
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selectMode) {
+            Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
+            Spacer(Modifier.width(4.dp))
+        }
         if (thumb != null) {
             Image(
                 bitmap = thumb!!.asImageBitmap(),
@@ -1206,6 +1299,7 @@ private fun NasSharesScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun NasBrowseScreen(
     conn: NasConnection,
     path: String,
@@ -1221,6 +1315,9 @@ private fun NasBrowseScreen(
     var entries by remember(conn.id, path) { mutableStateOf<List<NasEntry>?>(null) }
     var error by remember(conn.id, path) { mutableStateOf<String?>(null) }
     var busyMsg by remember { mutableStateOf<String?>(null) }
+    var selectMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     fun reload() {
         entries = null; error = null
@@ -1234,11 +1331,98 @@ private fun NasBrowseScreen(
     }
     LaunchedEffect(conn.id, path) { reload() }
 
+    /** 複数ファイルの本体ダウンロード（単体メニューと同じ保存先・通知）。成功/失敗件数を返す。 */
+    suspend fun downloadEntries(list: List<NasEntry>): Pair<Int, Int> {
+        var ok = 0; var ng = 0
+        for (e in list) {
+            if (e.isDir) { ng++; continue }
+            val r = withContext(Dispatchers.IO) {
+                runCatching {
+                    val values = android.content.ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, e.name)
+                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/FilesManager")
+                    }
+                    val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                        ?: error("保存先を作成できません")
+                    val notifId = (e.path.hashCode() and 0x7fffffff) % 90000 + 1000
+                    Notifier.progress(context, notifId, "ダウンロード: ${e.name}", null, "NASから受信中")
+                    var lastPct = -1
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            SmbRepo.copyToProgress(conn, e.path, out, e.size) { done ->
+                                if (e.size > 0) {
+                                    val pct = (done * 100 / e.size).toInt()
+                                    if (pct != lastPct) {
+                                        lastPct = pct
+                                        Notifier.progress(context, notifId, "ダウンロード: ${e.name}", pct, "${fmtSize(done)} / ${fmtSize(e.size)}")
+                                    }
+                                }
+                            }
+                        } ?: error("保存先を開けません")
+                        Notifier.done(context, notifId, "ダウンロード完了", e.name)
+                    } catch (ex: Exception) {
+                        Notifier.failed(context, notifId, "ダウンロード失敗: ${e.name}")
+                        throw ex
+                    }
+                }
+            }
+            if (r.isSuccess) ok++ else ng++
+        }
+        return ok to ng
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(
-            if (path.isEmpty()) (conn.label.ifBlank { conn.host }) else path.substringAfterLast('\\'),
-            onBack,
-        )
+        if (selectMode) {
+            SelectionBar(count = selected.size, onClose = { selectMode = false; selected = emptySet() }) {
+                TextButton(onClick = { selected = (entries ?: emptyList()).map { it.path }.toSet() }) { Text("全選択") }
+                TextButton(onClick = {
+                    val targets = (entries ?: emptyList()).filter { it.path in selected && !it.isDir }
+                    if (targets.isEmpty()) {
+                        Toast.makeText(context, "ファイルが選ばれていません", Toast.LENGTH_SHORT).show()
+                    } else {
+                        busyMsg = "ダウンロード中…（${targets.size}件）"
+                        selectMode = false; selected = emptySet()
+                        scope.launch {
+                            val (ok, ng) = downloadEntries(targets)
+                            busyMsg = null
+                            Toast.makeText(context, if (ng == 0) "${ok}件を Download/FilesManager に保存しました" else "成功${ok}件・失敗${ng}件", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }) { Text("ダウンロード") }
+                TextButton(onClick = { if (selected.isNotEmpty()) confirmDelete = true }) { Text("削除") }
+            }
+        } else {
+            SimpleBar(
+                if (path.isEmpty()) (conn.label.ifBlank { conn.host }) else path.substringAfterLast('\\'),
+                onBack,
+            )
+        }
+        BackHandler(enabled = selectMode) { selectMode = false; selected = emptySet() }
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("削除の確認") },
+                text = { Text("${selected.size}件をNASから削除します。元に戻せません。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        val targets = (entries ?: emptyList()).filter { it.path in selected }
+                        scope.launch {
+                            var ok = 0; var ng = 0
+                            withContext(Dispatchers.IO) {
+                                for (t in targets) {
+                                    if (runCatching { SmbRepo.delete(conn, t) }.isSuccess) ok++ else ng++
+                                }
+                            }
+                            Toast.makeText(context, if (ng == 0) "${ok}件削除しました" else "${ok}件削除、${ng}件失敗しました", Toast.LENGTH_SHORT).show()
+                            selectMode = false; selected = emptySet()
+                            reload()
+                        }
+                    }) { Text("削除する") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("キャンセル") } },
+            )
+        }
         Text(
             "smb://${conn.host}/${conn.share}" + if (path.isEmpty()) "" else "/" + path.replace('\\', '/'),
             style = MaterialTheme.typography.bodySmall,
@@ -1272,7 +1456,13 @@ private fun NasBrowseScreen(
                 items(entries!!, key = { it.path }) { e ->
                     var menu by remember { mutableStateOf(false) }
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
+                        modifier = Modifier.fillMaxWidth()
+                            .background(if (e.path in selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                            .combinedClickable(
+                                onClick = {
+                                    if (selectMode) {
+                                        selected = if (e.path in selected) selected - e.path else selected + e.path
+                                    } else {
                             when {
                                 e.isDir -> onOpenDir(e)
                                 e.isVideo || e.isAudio -> {
@@ -1289,9 +1479,20 @@ private fun NasBrowseScreen(
                                 e.isImage -> onViewImage(e)
                                 else -> Toast.makeText(context, "この形式はメニューからダウンロードして開いてね", Toast.LENGTH_SHORT).show()
                             }
-                        }.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectMode) { selectMode = true; selected = setOf(e.path) }
+                                },
+                            ).padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (selectMode) {
+                            Checkbox(checked = e.path in selected, onCheckedChange = {
+                                selected = if (e.path in selected) selected - e.path else selected + e.path
+                            })
+                            Spacer(Modifier.width(4.dp))
+                        }
                         Icon(
                             when {
                                 e.isDir -> AppIcons.Folder
@@ -1390,13 +1591,20 @@ private fun NasBrowseScreen(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun SafBrowseScreen(
     treeUriStr: String,
     onPlay: (String, String) -> Unit,
     onViewImage: (String, String) -> Unit,
+    onUpload: (List<UploadSource>, Boolean) -> Unit,
     onBack: () -> Unit,
+    refreshKey: Int = 0,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectMode by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var confirmDelete by remember { mutableStateOf(false) }
     var current by remember { mutableStateOf<DocumentFile?>(null) }
     var stack by remember { mutableStateOf(listOf<DocumentFile>()) }
     var files by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
@@ -1417,13 +1625,59 @@ private fun SafBrowseScreen(
         stack = if (root != null) listOf(root) else emptyList()
         load(root)
     }
+    LaunchedEffect(refreshKey) {
+        if (refreshKey > 0) current?.let { load(it) }
+    }
     BackHandler(enabled = stack.size > 1) {
         val newStack = stack.dropLast(1)
         stack = newStack
         load(newStack.lastOrNull())
     }
     Column(modifier = Modifier.fillMaxSize()) {
-        SimpleBar(current?.name ?: "フォルダ", onBack)
+        if (selectMode) {
+            SelectionBar(count = selected.size, onClose = { selectMode = false; selected = emptySet() }) {
+                TextButton(onClick = { selected = files.map { it.uri.toString() }.toSet() }) { Text("全選択") }
+                TextButton(onClick = {
+                    val targets = files.filter { it.uri.toString() in selected && it.isFile }
+                    if (targets.isEmpty()) Toast.makeText(context, "ファイルが選ばれていません", Toast.LENGTH_SHORT).show()
+                    else onUpload(targets.map { UploadSource(it.uri.toString(), it.name ?: "", it.length()) }, false)
+                }) { Text("NASへコピー") }
+                TextButton(onClick = {
+                    val targets = files.filter { it.uri.toString() in selected && it.isFile }
+                    if (targets.isEmpty()) Toast.makeText(context, "ファイルが選ばれていません", Toast.LENGTH_SHORT).show()
+                    else onUpload(targets.map { UploadSource(it.uri.toString(), it.name ?: "", it.length()) }, true)
+                }) { Text("NASへ移動") }
+                TextButton(onClick = { if (selected.isNotEmpty()) confirmDelete = true }) { Text("削除") }
+            }
+        } else {
+            SimpleBar(current?.name ?: "フォルダ", onBack)
+        }
+        BackHandler(enabled = selectMode) { selectMode = false; selected = emptySet() }
+        if (confirmDelete) {
+            AlertDialog(
+                onDismissRequest = { confirmDelete = false },
+                title = { Text("削除の確認") },
+                text = { Text("${selected.size}件を削除します。元に戻せません。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmDelete = false
+                        val targets = files.filter { it.uri.toString() in selected }
+                        scope.launch {
+                            var ok = 0; var ng = 0
+                            withContext(Dispatchers.IO) {
+                                for (t in targets) {
+                                    if (runCatching { t.delete() }.getOrDefault(false)) ok++ else ng++
+                                }
+                            }
+                            Toast.makeText(context, if (ng == 0) "${ok}件削除しました" else "${ok}件削除、${ng}件失敗しました", Toast.LENGTH_SHORT).show()
+                            selectMode = false; selected = emptySet()
+                            current?.let { load(it) }
+                        }
+                    }) { Text("削除する") }
+                },
+                dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("キャンセル") } },
+            )
+        }
         if (loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else if (files.isEmpty()) {
@@ -1435,7 +1689,14 @@ private fun SafBrowseScreen(
                 items(files, key = { it.uri.toString() }) { f ->
                     val mime = f.type ?: ""
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
+                        modifier = Modifier.fillMaxWidth()
+                            .background(if (f.uri.toString() in selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                            .combinedClickable(
+                                onClick = {
+                                    if (selectMode) {
+                                        val k = f.uri.toString()
+                                        selected = if (k in selected) selected - k else selected + k
+                                    } else {
                             when {
                                 f.isDirectory -> { stack = stack + f; load(f) }
                                 mime.startsWith("video/") || mime.startsWith("audio/") -> onPlay(f.uri.toString(), f.name ?: "")
@@ -1451,10 +1712,22 @@ private fun SafBrowseScreen(
                                         Toast.makeText(context, "開けるアプリが見つかりません", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            }
-                        }.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    }
+                                    }
+                                },
+                                onLongClick = {
+                                    if (!selectMode) { selectMode = true; selected = setOf(f.uri.toString()) }
+                                },
+                            ).padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (selectMode) {
+                            Checkbox(checked = f.uri.toString() in selected, onCheckedChange = {
+                                val k = f.uri.toString()
+                                selected = if (k in selected) selected - k else selected + k
+                            })
+                            Spacer(Modifier.width(4.dp))
+                        }
                         Icon(
                             if (f.isDirectory) AppIcons.Folder else AppIcons.InsertDriveFile,
                             contentDescription = null,
@@ -1504,6 +1777,10 @@ private fun FavoritesScreen(
                 items(localItems, key = { it.uri.toString() }) { item ->
                     LocalItemRow(
                         item = item,
+                        selected = false,
+                        selectMode = false,
+                        onToggleSelect = {},
+                        onLongClick = {},
                         isFav = true,
                         onToggleFavorite = {},
                         onClick = {
@@ -1540,6 +1817,243 @@ private fun FavoritesScreen(
     }
 }
 
+/**
+ * 本体→NAS 転送の送信先ピッカー。接続先 → 共有 → フォルダと潜っていき、
+ * 「ここへコピー／移動」で sources をまとめてアップロードする。
+ */
+@Composable
+private fun NasPickScreen(
+    connections: List<NasConnection>,
+    sources: List<UploadSource>,
+    move: Boolean,
+    onDone: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var conn by remember { mutableStateOf<NasConnection?>(null) }
+    var shares by remember { mutableStateOf<List<String>?>(null) }
+    var sharesError by remember { mutableStateOf<String?>(null) }
+    var share by remember { mutableStateOf<String?>(null) }
+    var path by remember { mutableStateOf("") }
+    var dirs by remember { mutableStateOf<List<NasEntry>?>(null) }
+    var busy by remember { mutableStateOf<String?>(null) }
+    var pct by remember { mutableStateOf<Int?>(null) }
+
+    fun loadShares(c: NasConnection) {
+        shares = null; sharesError = null
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { SmbRepo.discoverShares(c) } }
+            r.onSuccess { shares = it }.onFailure { sharesError = SmbRepo.describeError(it) }
+        }
+    }
+    fun loadDirs(c: NasConnection, sh: String, pth: String) {
+        dirs = null
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { SmbRepo.list(c.copy(share = sh), pth) } }
+            r.onSuccess { list -> dirs = list.filter { it.isDir } }
+                .onFailure {
+                    Toast.makeText(context, "開けませんでした: ${SmbRepo.describeError(it)}", Toast.LENGTH_LONG).show()
+                    dirs = emptyList()
+                }
+        }
+    }
+    fun stagedBack() {
+        if (busy != null) return
+        when {
+            share != null && path.isNotEmpty() -> {
+                val parent = parentSmbPath(path)
+                path = parent
+                loadDirs(conn!!, share!!, parent)
+            }
+            share != null -> { share = null; dirs = null }
+            conn != null -> { conn = null; shares = null }
+            else -> onBack()
+        }
+    }
+    BackHandler { stagedBack() }
+
+    fun startTransfer() {
+        val c = conn!!.copy(share = share!!)
+        val dir = path
+        scope.launch {
+            var okCount = 0
+            val failedNames = mutableListOf<String>()
+            val succeeded = mutableListOf<UploadSource>()
+            for ((idx, src) in sources.withIndex()) {
+                busy = "${if (move) "移動" else "コピー"}中: ${src.name}（${idx + 1}/${sources.size}）"
+                pct = null
+                val notifId = (src.uri.hashCode() and 0x7fffffff) % 90000 + 2000
+                Notifier.progress(context, notifId, "${if (move) "移動" else "コピー"}: ${src.name}", null, "NASへ送信中")
+                var lastPct = -1
+                val r = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val input = context.contentResolver.openInputStream(Uri.parse(src.uri))
+                            ?: error("ファイルを開けません")
+                        input.use { ins ->
+                            SmbRepo.writeFile(c, dir, src.name, ins, src.size) { done ->
+                                if (src.size > 0) {
+                                    val pp = (done * 100 / src.size).toInt()
+                                    if (pp != lastPct) {
+                                        lastPct = pp
+                                        pct = pp
+                                        Notifier.progress(context, notifId, "${if (move) "移動" else "コピー"}: ${src.name}", pp, "${fmtSize(done)} / ${fmtSize(src.size)}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (r.isSuccess) {
+                    okCount++; succeeded.add(src)
+                    Notifier.done(context, notifId, "送信完了", src.name)
+                } else {
+                    failedNames.add(src.name)
+                    Notifier.failed(context, notifId, "送信失敗: ${src.name}")
+                }
+            }
+            if (move && succeeded.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    for (src in succeeded) {
+                        runCatching { context.contentResolver.delete(Uri.parse(src.uri), null, null) }
+                    }
+                }
+            }
+            busy = null
+            Toast.makeText(
+                context,
+                if (failedNames.isEmpty()) {
+                    if (move) "${okCount}件をNASへ移動しました" else "${okCount}件をNASへコピーしました"
+                } else {
+                    "成功${okCount}件・失敗${failedNames.size}件"
+                },
+                Toast.LENGTH_LONG,
+            ).show()
+            onDone()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        SimpleBar(if (move) "NASへ移動：送信先を選ぶ" else "NASへコピー：送信先を選ぶ") { stagedBack() }
+        Text(
+            when {
+                conn == null -> "送信先のNASを選んでね（${sources.size}件）"
+                share == null -> "${conn!!.label.ifBlank { conn!!.host }} の共有フォルダ"
+                else -> "smb://${conn!!.host}/${share}" + if (path.isEmpty()) "" else "/" + path.replace('\\', '/')
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+        when {
+            busy != null -> Column(modifier = Modifier.padding(16.dp)) {
+                Text(busy!!, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(10.dp))
+                val pp = pct
+                if (pp != null) LinearProgressIndicator(progress = { pp / 100f }, modifier = Modifier.fillMaxWidth())
+                else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+            conn == null -> {
+                if (connections.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("接続先がありません。先にNASを追加してね", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(connections, key = { it.id }) { c ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { conn = c; loadShares(c) }
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(c.label.ifBlank { c.host }, fontWeight = FontWeight.Medium)
+                                    Text(c.host, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            share == null -> {
+                when {
+                    sharesError != null -> Column(modifier = Modifier.padding(16.dp)) {
+                        Text(sharesError!!, color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { loadShares(conn!!) }) { Text("再試行") }
+                    }
+                    shares == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    shares!!.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("共有フォルダが見つかりませんでした", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(shares!!, key = { it }) { name ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    share = name; path = ""; loadDirs(conn!!, name, "")
+                                }.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+            else -> {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        when {
+                            dirs == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                            dirs!!.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("サブフォルダはありません（ここに送れます）", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(dirs!!, key = { it.path }) { e ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable {
+                                            path = e.path; loadDirs(conn!!, share!!, e.path)
+                                        }.padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(e.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Button(
+                        onClick = { startTransfer() },
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    ) { Text(if (move) "ここへ移動（${sources.size}件）" else "ここへコピー（${sources.size}件）") }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectionBar(count: Int, onClose: () -> Unit, actions: @Composable RowScope.() -> Unit) {
+    TopAppBar(
+        title = { Text("${count}件", fontWeight = FontWeight.Bold) },
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.Close, contentDescription = "選択を解除")
+            }
+        },
+        actions = actions,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(
     store: NasStore,

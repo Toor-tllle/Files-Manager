@@ -71,3 +71,6 @@ fun joinSmbPath(parent: String, name: String): String =
 
 fun parentSmbPath(path: String): String =
     path.substringBeforeLast('\\', "")
+
+/** 本体→NAS 転送の対象（ローカル/SAF 共通の表現）。 */
+data class UploadSource(val uri: String, val name: String, val size: Long)

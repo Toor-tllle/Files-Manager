@@ -3,6 +3,7 @@ package com.rui.filesmanager
 import com.hierynomus.msdtyp.AccessMask
 import com.hierynomus.msfscc.FileAttributes
 import com.hierynomus.mssmb2.SMB2CreateDisposition
+import com.hierynomus.mssmb2.SMB2CreateOptions
 import com.hierynomus.mssmb2.SMB2ShareAccess
 import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
@@ -250,6 +251,36 @@ object SmbRepo {
                 done += n
                 onProgress?.invoke(done)
             }
+        }
+    }
+
+    /** 本体→NAS のアップロード。dirPath は共有内パス（"" = 直下）。既存ファイルは上書き。 */
+    fun writeFile(conn: NasConnection, dirPath: String, name: String, input: InputStream, size: Long, onProgress: ((Long) -> Unit)? = null) {
+        val share = ensureConnected(conn)
+        val target = joinSmbPath(dirPath, name)
+        val f = share.openFile(
+            target,
+            EnumSet.of(AccessMask.GENERIC_WRITE),
+            EnumSet.of(FileAttributes.FILE_ATTRIBUTE_NORMAL),
+            SMB2ShareAccess.ALL,
+            SMB2CreateDisposition.FILE_OVERWRITE_IF,
+            EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE),
+        )
+        try {
+            f.getOutputStream().use { out ->
+                val buf = ByteArray(256 * 1024)
+                var done = 0L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    done += n
+                    onProgress?.invoke(done)
+                }
+                out.flush()
+            }
+        } finally {
+            runCatching { f.close() }
         }
     }
 
