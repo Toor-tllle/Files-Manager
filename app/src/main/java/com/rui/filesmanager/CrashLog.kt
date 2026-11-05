@@ -11,6 +11,7 @@ import java.util.Locale
 /** 落ちた理由を端末内に記録し、次回起動時に画面で見せる（RuiAlertで実績のある方式）。 */
 object CrashLog {
     private const val FILE_NAME = "crash_last.txt"
+    private const val STAGE_NAME = "stage.txt"
     private var installed = false
 
     fun init(context: Context) {
@@ -23,8 +24,10 @@ object CrashLog {
                 val sw = StringWriter()
                 error.printStackTrace(PrintWriter(sw))
                 val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.JAPAN).format(Date())
+                val stage = try { File(appCtx.filesDir, STAGE_NAME).readText() } catch (e: Exception) { "?" }
                 val text = buildString {
                     append("FilesManager クラッシュ記録\n")
+                    append("到達段階: $stage\n")
                     append("時刻: $time\n")
                     append("スレッド: ${thread.name}\n\n")
                     append(sw.toString().take(6000))
@@ -35,6 +38,14 @@ object CrashLog {
             }
             prev?.uncaughtException(thread, error)
         }
+    }
+
+    fun setStage(context: Context, stage: String) {
+        try { File(context.filesDir, STAGE_NAME).writeText(stage) } catch (_: Exception) {}
+    }
+
+    fun readStage(context: Context): String {
+        return try { File(context.filesDir, STAGE_NAME).readText() } catch (e: Exception) { "?" }
     }
 
     fun read(context: Context): String? {

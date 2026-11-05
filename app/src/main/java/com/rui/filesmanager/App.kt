@@ -132,6 +132,7 @@ fun FilesManagerApp() {
     var startupUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
     var crashText by remember { mutableStateOf(CrashLog.read(context)) }
     var startupChecked by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { CrashLog.setStage(context, "root-composed") }
     LaunchedEffect(Unit) {
         if (!startupChecked && Updater.autoCheck(store)) {
             startupChecked = true
