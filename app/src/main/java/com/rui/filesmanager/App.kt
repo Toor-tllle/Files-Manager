@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -367,7 +369,7 @@ private fun HomeScreen(
         } catch (e: Exception) { 0L to 0L }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -947,7 +949,7 @@ private fun NasEditScreen(
         LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             item {
                 Text(
-                    "まず「検索」でNASを見つけてタップ。あとはユーザー名とパスワードでログインすれば、共有フォルダを自動で探します。",
+                    "まず「検索」でNASを見つけてタップ。あとはユーザー名とパスワードでログインするだけです。共有フォルダは、NASを開いたときに直下のフォルダとしてそのまま並びます。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1026,13 +1028,14 @@ private fun NasEditScreen(
                             busy = ""
                             r.onSuccess { shares ->
                                 foundShares = shares
-                                statusOk = true
-                                statusMsg = if (shares.isEmpty()) {
-                                    "ログインできました。ただ、よくある名前の共有フォルダは見つかりませんでした。下の欄に共有フォルダ名を直接入力して「保存」してね。"
+                                if (shares.isNotEmpty()) {
+                                    // ログインできたら設定は完了。共有は選ばせず、そのまま保存して戻る。
+                                    Toast.makeText(context, "ログインできました。NASを開くと直下のフォルダがそのまま開きます", Toast.LENGTH_LONG).show()
+                                    onSave(c.copy(share = "", label = c.label.ifBlank { c.host }))
                                 } else {
-                                    "ログインできました。下の共有フォルダから使うものを選んでね。"
+                                    statusOk = true
+                                    statusMsg = "ログインできました。ただ共有フォルダが自動では見つからなかったので、そのまま「保存」して、NASを開くときに共有名を入れてね。"
                                 }
-                                if (shares.size == 1 && share.isBlank()) share = shares[0]
                             }.onFailure { e ->
                                 statusOk = false
                                 statusMsg = SmbRepo.describeError(e)
@@ -1041,7 +1044,7 @@ private fun NasEditScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = busy.isEmpty(),
-                ) { Text(if (busy == "login") "ログイン中…" else "ログインして共有フォルダを探す") }
+                ) { Text(if (busy == "login") "ログイン中…" else "ログインして保存") }
                 if (statusMsg != null) {
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -1117,6 +1120,7 @@ private fun NasSharesScreen(
     var shares by remember(conn.id) { mutableStateOf<List<String>?>(null) }
     var error by remember(conn.id) { mutableStateOf<String?>(null) }
     var manual by remember { mutableStateOf("") }
+    var manualOpen by remember { mutableStateOf(false) }
 
     fun reload() {
         shares = null; error = null
@@ -1136,7 +1140,7 @@ private fun NasSharesScreen(
     Column(modifier = Modifier.fillMaxSize()) {
         SimpleBar(conn.label.ifBlank { conn.host }, onBack)
         Text(
-            "smb://${conn.host} ・ 共有フォルダを選んでね",
+            "smb://${conn.host} ・ 直下のフォルダ",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -1159,41 +1163,42 @@ private fun NasSharesScreen(
                     item {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            "よくある名前の共有フォルダは見つかりませんでした。下に共有フォルダ名を入力して開いてね。",
+                            "よくある名前の共有フォルダは見つかりませんでした。下の「見つからない場合はこちら」から共有フォルダ名を入力して開いてね。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 items(shares!!, key = { it }) { name ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { onOpenShare(name) },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onOpenShare(name) }
+                            .padding(horizontal = 4.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(10.dp))
-                            Text(name, fontWeight = FontWeight.Medium)
-                        }
+                        Icon(AppIcons.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                     }
-                    Spacer(Modifier.height(10.dp))
                 }
                 item {
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(manual, { manual = it }, label = { Text("共有フォルダ名を直接入力") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(10.dp))
-                    Button(
-                        onClick = {
-                            val name = manual.trim()
-                            if (name.isBlank()) {
-                                Toast.makeText(context, "共有フォルダ名を入力してね", Toast.LENGTH_SHORT).show()
-                            } else {
-                                onOpenShare(name)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("この共有フォルダを開く") }
+                    TextButton(onClick = { manualOpen = !manualOpen }) {
+                        Text("共有フォルダが見つからない場合はこちら（名前を入力）")
+                    }
+                    if (manualOpen) {
+                        OutlinedTextField(manual, { manual = it }, label = { Text("共有フォルダ名を直接入力") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                val name = manual.trim()
+                                if (name.isBlank()) {
+                                    Toast.makeText(context, "共有フォルダ名を入力してね", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    onOpenShare(name)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("この共有フォルダを開く") }
+                    }
                     Spacer(Modifier.height(24.dp))
                 }
             }

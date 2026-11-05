@@ -1,6 +1,6 @@
 {
-  "versionCode": 12,
-  "versionName": "0.2.1",
+  "versionCode": 14,
+  "versionName": "0.2.3",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.2.1：動画再生中に配信側が切断されると落ちる問題を修正。共有フォルダを指定しなくても保存・接続できるようにし、開くときに共有一覧から選べるようにしました。"
+  "notes": "v0.2.3：NASはログインできたら設定完了（共有を選ばずそのまま保存）。NASを開くと直下のフォルダがそのまま並びます。動画プレーヤーの大きさ調整（全体／画面いっぱい、ピンチズーム）と、ホームのヘッダーがステータスバーに埋もれる問題の修正も含みます。"
 }
