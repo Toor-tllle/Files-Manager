@@ -45,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -74,7 +75,6 @@ fun PlayerScreen(
     hasPrev: Boolean = false,
     hasNext: Boolean = false,
     queueLabel: String = "",
-    landscape: Boolean = false,
     onBack: () -> Unit = {},
     onPrev: () -> Unit = {},
     onNext: () -> Unit = {},
@@ -93,7 +93,9 @@ fun PlayerScreen(
     var seeking by remember { mutableStateOf(false) }
     var seekPos by remember { mutableStateOf(0f) }
     var videoAspect by remember { mutableStateOf(16f / 9f) }
-    var fillMode by remember { mutableStateOf(landscape) } // false=全体, true=画面いっぱい
+    var videoDispW by remember { mutableStateOf(0f) } // 表示画素幅（ピクセルアスペクト補正後）
+    var videoDispH by remember { mutableStateOf(0f) }
+    var fillMode by remember { mutableStateOf(false) } // false=そのまま, true=画面いっぱい
     var zoom by remember { mutableStateOf(1f) }
     var swipeSeeking by remember { mutableStateOf(false) }
     var swipeDeltaMs by remember { mutableStateOf(0L) }
@@ -103,17 +105,13 @@ fun PlayerScreen(
     var interactionTick by remember { mutableStateOf(0) }
     var panX by remember { mutableStateOf(0f) }
     var panY by remember { mutableStateOf(0f) }
-    // 回転に追従：横画面では「画面いっぱい」、縦画面では「全体表示」を既定にする
-    LaunchedEffect(landscape) {
-        fillMode = landscape
-        zoom = 1f; panX = 0f; panY = 0f
-    }
-
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     videoAspect = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                    videoDispW = videoSize.width * videoSize.pixelWidthHeightRatio
+                    videoDispH = videoSize.height.toFloat()
                 }
             }
         }
@@ -155,9 +153,19 @@ fun PlayerScreen(
                 if (contAspect > videoAspect) { baseW = contW; baseH = contW / videoAspect }
                 else { baseH = contH; baseW = contH * videoAspect }
             } else {
-                // 全体表示：長い辺に合わせて収める（レターボックス）
-                if (contAspect > videoAspect) { baseH = contH; baseW = contH * videoAspect }
-                else { baseW = contW; baseH = contW / videoAspect }
+                // そのまま表示：全体が収まる大きさにしつつ、動画本来の大きさよりは拡大しない
+                var w: androidx.compose.ui.unit.Dp
+                var h: androidx.compose.ui.unit.Dp
+                if (contAspect > videoAspect) { h = contH; w = contH * videoAspect }
+                else { w = contW; h = contW / videoAspect }
+                if (videoDispW > 0f && videoDispH > 0f) {
+                    val density = LocalDensity.current.density
+                    val nativeW = videoDispW / density
+                    val k = minOf(nativeW / w.value, 1f)
+                    w = (w.value * k).dp
+                    h = (h.value * k).dp
+                }
+                baseW = w; baseH = h
             }
             AndroidView(
                 factory = { ctx ->
@@ -312,7 +320,7 @@ fun PlayerScreen(
                     fillMode = !fillMode
                     zoom = 1f; panX = 0f; panY = 0f
                 }) {
-                    Text(if (fillMode) "全体表示" else "画面いっぱい", color = Color.White)
+                    Text(if (fillMode) "そのまま表示" else "画面いっぱい", color = Color.White)
                 }
                 IconButton(onClick = { player.seekTo((player.currentPosition - 10000).coerceAtLeast(0)) }) {
                     Text("-10", color = Color.White)

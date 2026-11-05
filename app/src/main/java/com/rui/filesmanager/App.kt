@@ -876,7 +876,6 @@ private fun LocalItemRow(
 @Composable
 private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
     ImmersiveSystemBars()
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val queue = nav.queue
     var idx by remember(nav) { mutableStateOf(if (queue.isEmpty()) 0 else nav.queueIndex.coerceIn(0, queue.size - 1)) }
     val title = queue.getOrNull(idx)?.title ?: nav.title
@@ -907,7 +906,6 @@ private fun PlayScreen(nav: Nav.Play, onBack: () -> Unit) {
                     source = src, title = title,
                     hasPrev = idx > 0, hasNext = idx < queue.size - 1,
                     queueLabel = if (queue.size > 1) "${idx + 1} / ${queue.size}" else "",
-                    landscape = landscape,
                     onPrev = { if (idx > 0) idx-- },
                     onNext = { if (idx < queue.size - 1) idx++ },
                     onBack = onBack,
