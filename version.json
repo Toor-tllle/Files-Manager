@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "0.1.6",
+  "versionCode": 8,
+  "versionName": "0.1.7",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.6：診断版。素のランチャーで端末に残るクラッシュ記録と実際のインストール中バージョンを表示します。"
+  "notes": "v0.1.7：起動クラッシュの残り原因（lifecycle-runtime-compose 部品の欠落）を追加。通常構成で起動します。"
 }
