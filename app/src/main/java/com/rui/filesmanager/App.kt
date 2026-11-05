@@ -37,7 +37,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -374,12 +373,6 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Filled.Menu, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text("ファイル", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text("FilesManager", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1558,7 +1551,6 @@ private fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val (curCode, curName) = remember { Updater.currentVersion(context) }
     var autoCheck by remember { mutableStateOf(Updater.autoCheck(store)) }
-    var urlText by remember { mutableStateOf(Updater.versionUrl(store)) }
     var checkMsg by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(false) }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -1598,18 +1590,9 @@ private fun SettingsScreen(
                         onCheckedChange = { autoCheck = it; Updater.setAutoCheck(store, it) },
                     )
                 }
-                OutlinedTextField(
-                    value = urlText,
-                    onValueChange = { urlText = it },
-                    label = { Text("version.json のURL（GitHub）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = {
-                            Updater.setVersionUrl(store, urlText.trim())
                             checking = true; checkMsg = null; update = null
                             scope.launch {
                                 val r = withContext(Dispatchers.IO) {
@@ -1630,10 +1613,6 @@ private fun SettingsScreen(
                         },
                         modifier = Modifier.weight(1f),
                     ) { Text(if (checking) "確認中…" else "更新を確認") }
-                    TextButton(
-                        onClick = { Updater.setVersionUrl(store, urlText.trim()); Toast.makeText(context, "保存しました", Toast.LENGTH_SHORT).show() },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("URLを保存") }
                 }
                 if (checkMsg != null) {
                     Spacer(Modifier.height(8.dp))

@@ -2,6 +2,7 @@ package com.rui.filesmanager
 
 import android.view.SurfaceView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -76,6 +78,9 @@ fun PlayerScreen(source: String, title: String) {
     var videoAspect by remember { mutableStateOf(16f / 9f) }
     var fillMode by remember { mutableStateOf(false) } // false=全体, true=画面いっぱい
     var zoom by remember { mutableStateOf(1f) }
+    var swipeSeeking by remember { mutableStateOf(false) }
+    var swipeDeltaMs by remember { mutableStateOf(0L) }
+    var swipeStartPos by remember { mutableStateOf(0L) }
     var panX by remember { mutableStateOf(0f) }
     var panY by remember { mutableStateOf(0f) }
 
@@ -157,6 +162,46 @@ fun PlayerScreen(source: String, title: String) {
                         })
                     },
             )
+            // 横スワイプでシーク（ズーム中はパン優先なので無効）。離した時点で移動する。
+            if (zoom == 1f) {
+                Box(
+                    modifier = Modifier.fillMaxSize()
+                        .pointerInput(duration) {
+                            detectHorizontalDragGestures(
+                                onDragStart = {
+                                    swipeStartPos = player.currentPosition
+                                    swipeDeltaMs = 0
+                                    swipeSeeking = true
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    // 画面幅いっぱいのスワイプで動画の30%（30秒〜5分の範囲）
+                                    val window = (duration * 0.3).toLong().coerceIn(30_000L, 300_000L)
+                                    val w = size.width.toFloat().coerceAtLeast(1f)
+                                    swipeDeltaMs += (dragAmount / w * window).toLong()
+                                },
+                                onDragEnd = {
+                                    val target = (swipeStartPos + swipeDeltaMs)
+                                        .coerceIn(0L, maxOf(duration, 0L))
+                                    player.seekTo(target)
+                                    swipeSeeking = false
+                                },
+                                onDragCancel = { swipeSeeking = false },
+                            )
+                        },
+                )
+            }
+            if (swipeSeeking) {
+                val target = (swipeStartPos + swipeDeltaMs).coerceIn(0L, maxOf(duration, 0L))
+                val deltaSec = (target - swipeStartPos) / 1000
+                Text(
+                    text = (if (deltaSec >= 0) "+${deltaSec}秒" else "${deltaSec}秒") +
+                        "　" + fmtTime(target) + " / " + fmtTime(duration),
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center)
+                        .background(Color(0x99000000), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
             if (zoom > 1f) {
                 Text(
                     text = "${(zoom * 100).toInt()}%",
