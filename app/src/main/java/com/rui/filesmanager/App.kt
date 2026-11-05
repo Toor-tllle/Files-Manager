@@ -43,6 +43,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
@@ -429,6 +431,29 @@ fun FadeVisible(visible: Boolean, modifier: Modifier = Modifier, content: @Compo
     AnimatedVisibility(visible = visible, modifier = modifier, enter = fadeIn(), exit = fadeOut()) { content() }
 }
 
+/** 一覧のスクロール位置を覚えておく場所。ファイルを開いて戻っても同じ場所に戻るため。 */
+private object ScrollMemory {
+    private val map = mutableMapOf<String, Pair<Int, Int>>()
+    fun get(key: String): Pair<Int, Int>? = map[key]
+    fun put(key: String, index: Int, offset: Int) {
+        map[key] = index to offset
+    }
+}
+
+@Composable
+private fun rememberPersistentListState(key: String): LazyListState {
+    val state = rememberLazyListState(
+        initialFirstVisibleItemIndex = ScrollMemory.get(key)?.first ?: 0,
+        initialFirstVisibleItemScrollOffset = ScrollMemory.get(key)?.second ?: 0,
+    )
+    DisposableEffect(key) {
+        onDispose {
+            ScrollMemory.put(key, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)
+        }
+    }
+    return state
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SimpleBar(title: String, onBack: () -> Unit) {
@@ -509,6 +534,7 @@ private fun DeviceFilesScreen(
     onOpenFolder: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("device")
     val treeLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -539,7 +565,7 @@ private fun DeviceFilesScreen(
                 Text("この端末の中のファイル", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             if (stat.first > 0) {
                 item {
                     Text("内部ストレージ", fontWeight = FontWeight.Bold)
@@ -657,6 +683,7 @@ private fun HomeScreen(
     searchSignal: Int = 0,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("home")
     var searchOpen by remember { mutableStateOf(false) }
     LaunchedEffect(searchSignal) { if (searchSignal > 0) searchOpen = true }
     var query by remember { mutableStateOf("") }
@@ -696,7 +723,7 @@ private fun HomeScreen(
             }
         }
 
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             if (searchOpen) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -867,6 +894,7 @@ private fun LocalListScreen(
     refreshKey: Int = 0,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("local:$title")
     var itemsState by remember { mutableStateOf<List<LocalItem>?>(null) }
     var sortMode by remember { mutableStateOf(0) } // 0=新しい順 1=名前 2=サイズ
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -955,7 +983,7 @@ private fun LocalListScreen(
                 )
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(sorted, key = { it.uri.toString() + it.id }) { item ->
                     LocalItemRow(
                         item = item,
@@ -1358,9 +1386,10 @@ private fun NasHomeScreen(
     onBack: () -> Unit,
 ) {
     var confirmDelete by remember { mutableStateOf<NasConnection?>(null) }
+    val listState = rememberPersistentListState("nashome")
     Column(modifier = Modifier.fillMaxSize()) {
         SimpleBar("ネットワーク・NAS", onBack)
-        LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             if (connections.isEmpty()) {
                 item {
                     Text(
@@ -1666,6 +1695,7 @@ private fun NasSharesScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("shares:${conn.id}")
     val scope = rememberCoroutineScope()
     var shares by remember(conn.id) { mutableStateOf<List<String>?>(null) }
     var error by remember(conn.id) { mutableStateOf<String?>(null) }
@@ -1707,7 +1737,7 @@ private fun NasSharesScreen(
                     Text("NASにログイン中…", style = MaterialTheme.typography.bodySmall)
                 }
             }
-            else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
                 if (shares!!.isEmpty()) {
                     item {
                         Spacer(Modifier.height(12.dp))
@@ -1776,6 +1806,7 @@ private fun NasBrowseScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("nas:${conn.id}:${conn.share}:$path")
     val scope = rememberCoroutineScope()
     var entries by remember(conn.id, path) { mutableStateOf<List<NasEntry>?>(null) }
     var error by remember(conn.id, path) { mutableStateOf<String?>(null) }
@@ -1917,7 +1948,7 @@ private fun NasBrowseScreen(
             entries!!.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("フォルダは空です", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+            else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(entries!!, key = { it.path }) { e ->
                     var menu by remember { mutableStateOf(false) }
                     Row(
@@ -2063,6 +2094,7 @@ private fun SafBrowseScreen(
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var confirmDelete by remember { mutableStateOf(false) }
     var current by remember { mutableStateOf<DocumentFile?>(null) }
+    val listState = rememberPersistentListState("saf:$treeUriStr:${current?.uri}")
     var stack by remember { mutableStateOf(listOf<DocumentFile>()) }
     var files by remember { mutableStateOf<List<DocumentFile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -2142,7 +2174,7 @@ private fun SafBrowseScreen(
                 Text("フォルダは空です", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(files, key = { it.uri.toString() }) { f ->
                     val mime = f.type ?: ""
                     Row(
@@ -2214,6 +2246,7 @@ private fun FavoritesScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val listState = rememberPersistentListState("favorites")
     var localItems by remember { mutableStateOf<List<LocalItem>>(emptyList()) }
     LaunchedEffect(favorites) {
         localItems = withContext(Dispatchers.IO) { runCatching {
@@ -2231,7 +2264,7 @@ private fun FavoritesScreen(
                 Text("お気に入りはまだありません（☆で登録）", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(localItems, key = { it.uri.toString() }) { item ->
                     LocalItemRow(
                         item = item,
