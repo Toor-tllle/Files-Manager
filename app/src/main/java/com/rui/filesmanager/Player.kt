@@ -5,10 +5,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,7 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,6 +104,7 @@ fun PlayerScreen(
     // ファイル名と再生バーは、操作がなければ自動で隠れる（タップで出し入れ）
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableStateOf(0) }
+    var lastTapMs by remember { mutableStateOf(0L) }
     var panX by remember { mutableStateOf(0f) }
     var panY by remember { mutableStateOf(0f) }
     DisposableEffect(player) {
@@ -178,78 +180,124 @@ fun PlayerScreen(
                     translationY = panY
                 },
             )
-            // ジェスチャー受付レイヤー（ピンチズーム／パン／ダブルタップリセット）
+            // ジェスチャー一括受付：タップ=バー表示切替／横スワイプ=シーク／縦スワイプ=前後／ピンチ=ズーム
+            // （検出器を重ねると競合してタップが死ぬため、1つの受付で全部を判定する）
             Box(
                 modifier = Modifier.fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, gestureZoom, _ ->
-                            val newZoom = (zoom * gestureZoom).coerceIn(1f, 4f)
-                            zoom = newZoom
-                            if (newZoom <= 1f) {
-                                panX = 0f; panY = 0f
-                            } else {
-                                val maxPanX = (baseW.toPx() * newZoom - contW.toPx()) / 2f
-                                val maxPanY = (baseH.toPx() * newZoom - contH.toPx()) / 2f
-                                panX = (panX + pan.x).coerceIn(-maxOf(maxPanX, 0f), maxOf(maxPanX, 0f))
-                                panY = (panY + pan.y).coerceIn(-maxOf(maxPanY, 0f), maxOf(maxPanY, 0f))
+                    .pointerInput(baseW, baseH) {
+                        awaitEachGesture {
+                            val first = awaitFirstDown(requireUnconsumed = false)
+                            interactionTick++
+                            val startX = first.position.x
+                            val startY = first.position.y
+                            val startPosMs = player.currentPosition
+                            val startZoom = zoom
+                            val startPanX = panX
+                            val startPanY = panY
+                            var mode = 0 // 0=未定 1=シーク 2=縦 3=パン 4=ピンチ 5=終了待ち
+                            var pinchD0 = 0f
+                            var pinchC0 = Offset.Zero
+                            var secondId: PointerId? = null
+                            var totalDx = 0f
+                            var totalDy = 0f
+                            var allUp = false
+                            while (!allUp) {
+                                val event = awaitPointerEvent()
+                                val changes = event.changes
+                                val pressed = changes.filter { it.pressed }
+                                val firstChange = changes.firstOrNull { it.id == first.id }
+                                if (mode != 4 && mode != 5 && pressed.size >= 2 && firstChange != null) {
+                                    val other = pressed.first { it.id != first.id }
+                                    secondId = other.id
+                                    pinchD0 = (other.position - firstChange.position).getDistance()
+                                    pinchC0 = (other.position + firstChange.position) / 2f
+                                    mode = 4
+                                    swipeSeeking = false
+                                }
+                                when (mode) {
+                                    0, 1, 2, 3 -> {
+                                        if (firstChange != null) {
+                                            totalDx = firstChange.position.x - startX
+                                            totalDy = firstChange.position.y - startY
+                                            if (mode == 0 && (abs(totalDx) > viewConfiguration.touchSlop || abs(totalDy) > viewConfiguration.touchSlop)) {
+                                                mode = when {
+                                                    startZoom > 1f -> 3
+                                                    abs(totalDx) >= abs(totalDy) -> 1
+                                                    hasPrev || hasNext -> 2
+                                                    else -> 3
+                                                }
+                                                if (mode == 1) {
+                                                    swipeStartPos = startPosMs
+                                                    swipeSeeking = true
+                                                }
+                                            }
+                                            when (mode) {
+                                                1 -> {
+                                                    // 画面幅いっぱいのスワイプで動画の30%（30秒〜5分の範囲）。指の総移動量に追従
+                                                    val window = (duration * 0.3).toLong().coerceIn(30_000L, 300_000L)
+                                                    val w = size.width.toFloat().coerceAtLeast(1f)
+                                                    swipeDeltaMs = (totalDx / w * window).toLong()
+                                                }
+                                                3 -> {
+                                                    if (startZoom > 1f) {
+                                                        val maxPanX = (baseW.toPx() * startZoom - size.width) / 2f
+                                                        val maxPanY = (baseH.toPx() * startZoom - size.height) / 2f
+                                                        panX = (startPanX + totalDx).coerceIn(-maxOf(maxPanX, 0f), maxOf(maxPanX, 0f))
+                                                        panY = (startPanY + totalDy).coerceIn(-maxOf(maxPanY, 0f), maxOf(maxPanY, 0f))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    4 -> {
+                                        val a = firstChange
+                                        val b = secondId?.let { sid -> changes.firstOrNull { it.id == sid } }
+                                        if (a != null && b != null && pinchD0 > 0f) {
+                                            val d = (b.position - a.position).getDistance()
+                                            val newZoom = (startZoom * d / pinchD0).coerceIn(1f, 4f)
+                                            zoom = newZoom
+                                            if (newZoom <= 1f) {
+                                                panX = 0f; panY = 0f
+                                            } else {
+                                                val c = (a.position + b.position) / 2f
+                                                val maxPanX = (baseW.toPx() * newZoom - size.width) / 2f
+                                                val maxPanY = (baseH.toPx() * newZoom - size.height) / 2f
+                                                panX = (startPanX + (c.x - pinchC0.x)).coerceIn(-maxOf(maxPanX, 0f), maxOf(maxPanX, 0f))
+                                                panY = (startPanY + (c.y - pinchC0.y)).coerceIn(-maxOf(maxPanY, 0f), maxOf(maxPanY, 0f))
+                                            }
+                                        }
+                                        if (pressed.size < 2) mode = 5
+                                    }
+                                }
+                                if (pressed.isEmpty()) {
+                                    allUp = true
+                                    when (mode) {
+                                        0 -> {
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastTapMs < 320) {
+                                                // ダブルタップ：ズームリセット
+                                                zoom = 1f; panX = 0f; panY = 0f
+                                                lastTapMs = 0L
+                                            } else {
+                                                controlsVisible = !controlsVisible
+                                                lastTapMs = now
+                                            }
+                                        }
+                                        1 -> {
+                                            val target = (swipeStartPos + swipeDeltaMs).coerceIn(0L, maxOf(duration, 0L))
+                                            player.seekTo(target)
+                                            swipeSeeking = false
+                                        }
+                                        2 -> {
+                                            if (totalDy < -90f) onNext()
+                                            else if (totalDy > 90f) onPrev()
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = { interactionTick++ },
-                            onTap = { controlsVisible = !controlsVisible },
-                            onDoubleTap = {
-                                zoom = 1f; panX = 0f; panY = 0f
-                            },
-                        )
                     },
             )
-            // 横スワイプでシーク（ズーム中はパン優先なので無効）。離した時点で移動する。
-            if (zoom == 1f) {
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                        .pointerInput(duration) {
-                            detectHorizontalDragGestures(
-                                onDragStart = {
-                                    swipeStartPos = player.currentPosition
-                                    swipeDeltaMs = 0
-                                    swipeSeeking = true
-                                },
-                                onHorizontalDrag = { _, dragAmount ->
-                                    // 画面幅いっぱいのスワイプで動画の30%（30秒〜5分の範囲）
-                                    val window = (duration * 0.3).toLong().coerceIn(30_000L, 300_000L)
-                                    val w = size.width.toFloat().coerceAtLeast(1f)
-                                    swipeDeltaMs += (dragAmount / w * window).toLong()
-                                },
-                                onDragEnd = {
-                                    val target = (swipeStartPos + swipeDeltaMs)
-                                        .coerceIn(0L, maxOf(duration, 0L))
-                                    player.seekTo(target)
-                                    swipeSeeking = false
-                                },
-                                onDragCancel = { swipeSeeking = false },
-                            )
-                        },
-                )
-            }
-            // 縦スワイプで前後のファイルへ（上=次、下=前）
-            if (hasPrev || hasNext) {
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                        .pointerInput(hasPrev, hasNext) {
-                            var totalDy = 0f
-                            detectVerticalDragGestures(
-                                onDragStart = { totalDy = 0f },
-                                onVerticalDrag = { _, dy -> totalDy += dy },
-                                onDragEnd = {
-                                    if (totalDy < -90f) onNext()
-                                    else if (totalDy > 90f) onPrev()
-                                },
-                            )
-                        },
-                )
-            }
             if (swipeSeeking) {
                 val target = (swipeStartPos + swipeDeltaMs).coerceIn(0L, maxOf(duration, 0L))
                 val deltaSec = (target - swipeStartPos) / 1000

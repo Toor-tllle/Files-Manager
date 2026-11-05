@@ -25,7 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,6 +96,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -1227,30 +1229,37 @@ private fun ImageViewScreen(nav: Nav.ViewImage, onBack: () -> Unit) {
                     Text(images[idx].title, color = Color.White, maxLines = 1, modifier = Modifier.padding(end = 12.dp))
                 }
             }
-            // タップでバーの表示/非表示
+            // ジェスチャー一括受付：タップ=バー表示切替／横スワイプ=前後の画像
             Box(
-                modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = { interactionTick++ },
-                        onTap = { controlsVisible = !controlsVisible },
-                    )
+                modifier = Modifier.fillMaxSize().pointerInput(images.size) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        interactionTick++
+                        var totalDx = 0f
+                        var totalDy = 0f
+                        var allUp = false
+                        while (!allUp) {
+                            val event = awaitPointerEvent()
+                            val ch = event.changes.firstOrNull { it.id == down.id }
+                            if (ch != null) {
+                                totalDx = ch.position.x - down.position.x
+                                totalDy = ch.position.y - down.position.y
+                            }
+                            if (event.changes.none { it.pressed }) {
+                                allUp = true
+                                val moved = abs(totalDx) > viewConfiguration.touchSlop || abs(totalDy) > viewConfiguration.touchSlop
+                                if (!moved) {
+                                    controlsVisible = !controlsVisible
+                                } else if (abs(totalDx) >= abs(totalDy)) {
+                                    if (totalDx < -70f && idx < images.size - 1) idx++
+                                    else if (totalDx > 70f && idx > 0) idx--
+                                }
+                            }
+                        }
+                    }
                 },
             )
             if (images.size > 1) {
-                // 横スワイプで前後の画像へ
-                Box(
-                    modifier = Modifier.fillMaxSize().pointerInput(idx) {
-                        var totalDx = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = { totalDx = 0f },
-                            onHorizontalDrag = { _, dx -> totalDx += dx },
-                            onDragEnd = {
-                                if (totalDx < -70f && idx < images.size - 1) idx++
-                                else if (totalDx > 70f && idx > 0) idx--
-                            },
-                        )
-                    },
-                )
                 if (controlsVisible) Text(
                     "${idx + 1} / ${images.size}",
                     color = Color.White,
