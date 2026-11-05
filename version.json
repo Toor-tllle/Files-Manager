@@ -1,6 +1,6 @@
 {
-  "versionCode": 4,
-  "versionName": "0.1.3",
+  "versionCode": 5,
+  "versionName": "0.1.4",
   "apk_url": "https://github.com/Toor-tllle/Files-Manager/releases/latest/download/FilesManager.apk",
-  "notes": "v0.1.3：起動直後クラッシュの切り分け用。記録機能をアプリ起動直後から有効化し、落ちた場合は次回に理由を素の画面で表示します。"
+  "notes": "v0.1.4：起動切り分け版。最初に素の診断ランチャーが開き、記録表示と「本編を開く」ボタンから通常画面へ進みます。"
 }
